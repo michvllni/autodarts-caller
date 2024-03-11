@@ -2051,7 +2051,7 @@ def process_match_atw(m):
 
     variant = m['variant']
     currentPlayerIndex = m['player']
-    currentPlayerName = str(currentPlayer['name']).lower()
+    currentPlayerName = m['players'][currentPlayerIndex]['name'].lower()
     numberOfPlayers = len(m['players'])
     isRandomOrder = m['settings']['order'] == 'Random-Bull'
     winningPlayerIndex = m['winner']
