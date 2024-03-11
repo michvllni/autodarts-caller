@@ -119,7 +119,6 @@ jobs:
     needs: build
     env:
       PLATFORMS: linux/amd64,linux/arm64
-      IMAGE_NAME: ${{ github.repository }}
     steps:
       - name: Check out the repo
         uses: actions/checkout@v4
@@ -145,7 +144,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            docker.io/${{ env.IMAGE_NAME }}
+            docker.io/${{ github.repository }}
           # Docker tags based on the following events/attributes
           tags: |
             type=schedule
