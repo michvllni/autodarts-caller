@@ -4,15 +4,9 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-    commit-message:
-      prefix: "chore(pip): Update dependency"
-      include: "scope"
     labels:
       - "dependencies"
       - "python"
-    pull-request-title:
-      prefix: "chore(pip): Update dependency"
-      include: "scope"
     pull-request-branch-name:
       prefix: "dependabot/pip"
       separator: "/"
@@ -21,16 +15,10 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-    commit-message:
-      prefix: "chore(composer): Update dependency"
-      include: "scope"
     labels:
       - "dependencies"
       - "docker"
       - "compose"
-    pull-request-title:
-      prefix: "chore(composer): Update dependency"
-      include: "scope"
     pull-request-branch-name:
       prefix: "dependabot/composer"
       separator: "/"
@@ -39,16 +27,21 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-    commit-message:
-      prefix: "chore(github-actions): Update dependency"
-      include: "scope"
     labels:
       - "dependencies"
       - "github-actions"
-    pull-request-title:
-      prefix: "chore(github-actions): Update dependency"
-      include: "scope"
     pull-request-branch-name:
       prefix: "dependabot/github-actions"
+      separator: "/"
+    target-branch: "develop"
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    labels:
+      - "dependencies"
+      - "docker"
+    pull-request-branch-name:
+      prefix: "dependabot/docker"
       separator: "/"
     target-branch: "develop"
