@@ -1,0 +1,54 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "chore(pip): Update dependency"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+    pull-request-title:
+      prefix: "chore(pip): Update dependency"
+      include: "scope"
+    pull-request-branch-name:
+      prefix: "dependabot/pip"
+      separator: "/"
+    target-branch: "develop"
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "chore(composer): Update dependency"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "compose"
+    pull-request-title:
+      prefix: "chore(composer): Update dependency"
+      include: "scope"
+    pull-request-branch-name:
+      prefix: "dependabot/composer"
+      separator: "/"
+    target-branch: "develop"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "chore(github-actions): Update dependency"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    pull-request-title:
+      prefix: "chore(github-actions): Update dependency"
+      include: "scope"
+    pull-request-branch-name:
+      prefix: "dependabot/github-actions"
+      separator: "/"
+    target-branch: "develop"
