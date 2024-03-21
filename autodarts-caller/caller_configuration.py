@@ -8,7 +8,7 @@ from globals import AUTODART_CLIENT_ID,AUTODART_CLIENT_SECRET
 from autodarts_keycloak_client import AutodartsKeycloakClient
 from utils import ppi,ppe
 
-class caller_configuration:
+class CallerConfiguration:
     VERSION: str = '0.0.1'
     AUTODART_USER_EMAIL: str
     AUTODART_USER_PASSWORD: str        

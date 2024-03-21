@@ -1,9 +1,9 @@
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from sound import play_sound_effect, mirror_sounds
 from utils import ppi
-from server import caller_server
+from server import CallerServer
 
-def process_match_rtw(m, config: caller_configuration, caller_server: caller_server):
+def process_match_rtw(m, config: CallerConfiguration, CallerServer: CallerServer):
     global isGameFinished
 
     variant = m['variant']
@@ -50,7 +50,7 @@ def process_match_rtw(m, config: caller_configuration, caller_server: caller_ser
             }
         }
         # ppi(dartsPulled)
-        caller_server.broadcast(dartsPulled)
+        CallerServer.broadcast(dartsPulled)
     elif config.CALL_EVERY_DART == True and turn is not None and turn['throws'] and not isRandomOrder:
         lastThrow = turn['throws'][-1]
         targetHit = lastThrow['segment']['number']
@@ -87,7 +87,7 @@ def process_match_rtw(m, config: caller_configuration, caller_server: caller_ser
 
             }
         }
-        caller_server.broadcast(dartsThrown)
+        CallerServer.broadcast(dartsThrown)
 
         play_sound_effect(str(points),True)
         if config.AMBIENT_SOUNDS != 0.0:
@@ -116,7 +116,7 @@ def process_match_rtw(m, config: caller_configuration, caller_server: caller_ser
                 "dartsThrownValue": "0"
             } 
         }
-        caller_server.broadcast(matchWon)
+        CallerServer.broadcast(matchWon)
 
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
@@ -149,7 +149,7 @@ def process_match_rtw(m, config: caller_configuration, caller_server: caller_ser
                 "special": "TODO"
                 }     
             }
-        caller_server.broadcast(gameStarted)
+        CallerServer.broadcast(gameStarted)
 
         play_sound_effect(currentPlayerName, False)
         play_sound_effect('gameon', True)

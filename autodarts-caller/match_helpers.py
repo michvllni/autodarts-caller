@@ -7,9 +7,9 @@ from utils import ppi, ppe
 from sound import play_sound_effect, mirror_sounds
 from caller import setup_caller
 from board import Board
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from autodarts_keycloak_client import AutodartsKeycloakClient
-from server import caller_server
+from server import CallerServer
 
 def next_game(kc: AutodartsKeycloakClient):
     if play_sound_effect('control_next_game', wait_for_last = False, volume_mult = 1.0, mod = False) == False:
@@ -108,7 +108,7 @@ def correct_throw(throw_indices, score, kc: AutodartsKeycloakClient):
         lastCorrectThrow = None 
         ppe('Correcting throw failed', e)
 
-def listen_to_match(m, ws,config: caller_configuration, board: Board, caller_server: caller_server):
+def listen_to_match(m, ws,config: CallerConfiguration, board: Board, CallerServer: CallerServer):
     global currentMatch
     global currentMatchHost
     global currentMatchPlayers
@@ -159,7 +159,7 @@ def listen_to_match(m, ws,config: caller_configuration, board: Board, caller_ser
                 bullingStart = {
                     "event": "bulling-start"
                 }
-                caller_server.broadcast(bullingStart)
+                CallerServer.broadcast(bullingStart)
 
                 play_sound_effect('bulling_start')
 
@@ -196,7 +196,7 @@ def listen_to_match(m, ws,config: caller_configuration, board: Board, caller_ser
                         "special": "TODO"
                         }     
                     }
-                caller_server.broadcast(matchStarted)
+                CallerServer.broadcast(matchStarted)
 
             elif mode == 'Cricket':
                 matchStarted = {
@@ -208,7 +208,7 @@ def listen_to_match(m, ws,config: caller_configuration, board: Board, caller_ser
                         "special": "TODO"
                         }     
                     }
-                caller_server.broadcast(matchStarted)
+                CallerServer.broadcast(matchStarted)
 
             if mode != 'Bull-off':
                 callPlayerNameState = False
@@ -264,7 +264,7 @@ def reset_checkouts_counter():
     global checkoutsCounter
     checkoutsCounter = {}
 
-def increase_checkout_counter(player_index, remaining_score,config: caller_configuration):
+def increase_checkout_counter(player_index, remaining_score,config: CallerConfiguration):
     global checkoutsCounter
 
     if player_index not in checkoutsCounter:
@@ -278,7 +278,7 @@ def increase_checkout_counter(player_index, remaining_score,config: caller_confi
 
     return checkoutsCounter[player_index]['checkout_count'] <= config.POSSIBLE_CHECKOUT_CALL
 
-def checkout_only_yourself(currentPlayer,config: caller_configuration):
+def checkout_only_yourself(currentPlayer,config: CallerConfiguration):
     if config.POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY:
         if 'boardId' in currentPlayer and currentPlayer['boardId'] == config.AUTODART_USER_BOARD_ID:
             return True

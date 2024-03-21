@@ -1,9 +1,9 @@
 from sound import play_sound_effect, mirror_sounds
 from utils import ppi
-from caller_configuration import caller_configuration
-from server import caller_server
+from caller_configuration import CallerConfiguration
+from server import CallerServer
 
-def process_match_atc(m, config: caller_configuration, caller_server: caller_server):
+def process_match_atc(m, config: CallerConfiguration, CallerServer: CallerServer):
     global isGameFinished
 
     variant = m['variant']
@@ -61,7 +61,7 @@ def process_match_atc(m, config: caller_configuration, caller_server: caller_ser
                 "dartsThrownValue": "0"
             } 
         }
-        caller_server.broadcast(matchWon)
+        CallerServer.broadcast(matchWon)
 
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')

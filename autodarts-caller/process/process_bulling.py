@@ -1,7 +1,7 @@
 from sound import play_sound_effect, mirror_sounds
-from server import caller_server
+from server import CallerServer
 
-def process_bulling(m, caller_server: caller_server):
+def process_bulling(m, CallerServer: CallerServer):
     currentPlayerIndex = m['player']
     currentPlayer = m['players'][currentPlayerIndex]
     currentPlayerName = str(currentPlayer['name']).lower()
@@ -14,7 +14,7 @@ def process_bulling(m, caller_server: caller_server):
             "player": currentPlayerName,
             "playerIsBot": str(currentPlayerIsBot)
         }
-        caller_server.broadcast(bullingEnd)
+        CallerServer.broadcast(bullingEnd)
 
         name = play_sound_effect((m['players'][m['gameWinner']]['name']).lower())
         if name:
@@ -26,7 +26,7 @@ def process_bulling(m, caller_server: caller_server):
                 "player": currentPlayerName,
                 "playerIsBot": str(currentPlayerIsBot)
             }
-            caller_server.broadcast(bullingStart)
+            CallerServer.broadcast(bullingStart)
 
             play_sound_effect('bulling_start')
         

@@ -9,9 +9,9 @@ import random
 from defaults import DEFAULT_EMPTY_PATH,DEFAULT_DOWNLOADS_NAME,DEFAULT_CALLER,DEFAULT_CALLERS_BANNED_FILE
 from globals import CALLER_PROFILES,TEMPLATE_FILE_ENCODING,SUPPORTED_SOUND_FORMATS,CALLER_LANGUAGES,CALLER_GENDERS
 from sound import play_sound_effect,mirror_sounds
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 
-def download_callers(config:caller_configuration): 
+def download_callers(config:CallerConfiguration): 
 
     if config.DOWNLOADS:
         download_list = CALLER_PROFILES
@@ -237,7 +237,7 @@ def load_callers_banned(preview=False,BLACKLIST_PATH=DEFAULT_EMPTY_PATH):
         except Exception as e:
             ppe(f"Failed to create '{path_to_callers_banned_file}'", e)
 
-def load_callers(config:caller_configuration):
+def load_callers(config:CallerConfiguration):
     # load shared-sounds
     shared_sounds = {}
     if config.AUDIO_MEDIA_PATH_SHARED != DEFAULT_EMPTY_PATH: 
@@ -353,7 +353,7 @@ def filter_most_recent_version(path_list):
     
     return filtered_list
 
-def setup_caller(config:caller_configuration):
+def setup_caller(config:CallerConfiguration):
     global caller
     global caller_title
     global caller_title_without_version

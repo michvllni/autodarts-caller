@@ -1,4 +1,4 @@
-from server import caller_server
+from server import CallerServer
 
-def process_common(m, caller_server: caller_server):
-    caller_server.broadcast(m)
+def process_common(m, CallerServer: CallerServer):
+    CallerServer.broadcast(m)

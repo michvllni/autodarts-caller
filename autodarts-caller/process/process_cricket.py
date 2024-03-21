@@ -1,11 +1,11 @@
 from globals import SUPPORTED_CRICKET_FIELDS
 from sound import play_sound_effect, mirror_sounds
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from utils import ppi
 from caller import setup_caller
-from server import caller_server
+from server import CallerServer
 
-def process_match_cricket(m, config: caller_configuration, caller_server: caller_server):
+def process_match_cricket(m, config: CallerConfiguration, CallerServer: CallerServer):
     currentPlayerIndex = m['player']
     currentPlayer = m['players'][currentPlayerIndex]
     currentPlayerName = str(currentPlayer['name']).lower()
@@ -61,7 +61,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                     "dartsThrownValue": throwPoints                    
                 } 
             }
-        caller_server.broadcast(matchWon)
+        CallerServer.broadcast(matchWon)
 
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
@@ -101,7 +101,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                     "dartsThrownValue": throwPoints
                 } 
             }
-        caller_server.broadcast(gameWon)
+        CallerServer.broadcast(gameWon)
 
         play_sound_effect('gameshot')
         play_sound_effect(currentPlayerName, True)
@@ -130,7 +130,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                 "special": "TODO"
                 }     
             }
-        caller_server.broadcast(matchStarted)
+        CallerServer.broadcast(matchStarted)
 
         play_sound_effect(currentPlayerName, False)
         if play_sound_effect('matchon', True) == False:
@@ -162,7 +162,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                 "special": "TODO"
                 }     
             }
-        caller_server.broadcast(gameStarted)
+        CallerServer.broadcast(gameStarted)
 
         play_sound_effect(currentPlayerName, False)
         play_sound_effect('gameon', True)
@@ -185,7 +185,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                         "mode": variant
                     }       
                 }
-        caller_server.broadcast(busted)
+        CallerServer.broadcast(busted)
 
         play_sound_effect('busted')
         if config.AMBIENT_SOUNDS != 0.0:
@@ -224,7 +224,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
 
             }
         }
-        caller_server.broadcast(dartsThrown)
+        CallerServer.broadcast(dartsThrown)
 
         play_sound_effect(str(throwPoints))
         if config.AMBIENT_SOUNDS != 0.0:
@@ -264,7 +264,7 @@ def process_match_cricket(m, config: caller_configuration, caller_server: caller
                 # ]
             }
         }
-        caller_server.broadcast(dartsPulled)
+        CallerServer.broadcast(dartsPulled)
 
         if config.CALL_CURRENT_PLAYER and config.CALL_CURRENT_PLAYER_ALWAYS:
             play_sound_effect(currentPlayerName)

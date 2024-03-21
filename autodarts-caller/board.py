@@ -2,14 +2,14 @@ import requests
 from utils import ppi,ppe
 from sound import play_sound_effect, mirror_sounds
 from globals import AUTODART_BOARDS_URL
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 
 class Board:
     boardManagerAdress: str
-    config: caller_configuration
+    config: CallerConfiguration
 
-    def __init__(self,caller_configuration: caller_configuration):
-        self.config = caller_configuration
+    def __init__(self,CallerConfiguration: CallerConfiguration):
+        self.config = CallerConfiguration
         self.receive_local_board_address()
 
     def start_board(self):

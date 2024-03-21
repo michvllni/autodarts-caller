@@ -3,16 +3,16 @@ from urllib.parse import unquote
 import os
 import threading
 
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from globals import CALLER_LANGUAGES, CALLER_GENDERS
 from defaults import DEFAULT_HOST_IP
 
 
 class WebCaller:
     app: Flask = Flask(__name__)
-    config: caller_configuration
+    config: CallerConfiguration
 
-    def __init__(self, name, host, port, ssl_context, config: caller_configuration):
+    def __init__(self, name, host, port, ssl_context, config: CallerConfiguration):
         self.config = config
         self.app = Flask(name)
         self.host = host

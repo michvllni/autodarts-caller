@@ -13,10 +13,10 @@ from utils import ppi, ppe, check_paths, check_already_running
 from globals import AUTODART_URL, SUPPORTED_GAME_VARIANTS, CALLER_LANGUAGES, CALLER_GENDERS
 from defaults import DEFAULT_HOST_IP, DEFAULT_EMPTY_PATH, DEFAULT_CALLER_VOLUME, DEFAULT_CALLER, DEFAULT_RANDOM_CALLER, DEFAULT_RANDOM_CALLER_EACH_LEG, DEFAULT_RANDOM_CALLER_LANGUAGE, DEFAULT_RANDOM_CALLER_GENDER, DEFAULT_CALL_CURRENT_PLAYER, DEFAULT_CALL_CURRENT_PLAYER_ALWAYS, DEFAULT_CALL_EVERY_DART, DEFAULT_CALL_EVERY_DART_SINGLE_FILES, DEFAULT_POSSIBLE_CHECKOUT_CALL, DEFAULT_POSSIBLE_CHECKOUT_CALL_SINGLE_FILES, DEFAULT_POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY, DEFAULT_AMBIENT_SOUNDS, DEFAULT_AMBIENT_SOUNDS_AFTER_CALLS, DEFAULT_DOWNLOADS, DEFAULT_DOWNLOADS_LIMIT, DEFAULT_DOWNLOADS_LANGUAGE, DEFAULT_DOWNLOADS_NAME, DEFAULT_BACKGROUND_AUDIO_VOLUME, DEFAULT_WEB_CALLER, DEFAULT_WEB_CALLER_SCOREBOARD, DEFAULT_WEB_CALLER_PORT, DEFAULT_WEB_CALLER_DISABLE_HTTPS, DEFAULT_HOST_PORT, DEFAULT_DEBUG, DEFAULT_CERT_CHECK, DEFAULT_MIXER_FREQUENCY, DEFAULT_MIXER_SIZE, DEFAULT_MIXER_CHANNELS, DEFAULT_MIXER_BUFFERSIZE, DEFAULT_DOWNLOADS_PATH, DEFAULT_CALLERS_BANNED_FILE
 from audio import BackgroundAudio
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from caller import load_callers_banned, download_callers, setup_caller
 from web_caller import WebCaller
-from server import caller_server
+from server import CallerServer
 
 if __name__ == "__main__":
     os.environ['SSL_CERT_FILE'] = certifi.where()
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     MIXER_CHANNELS = args['mixer_channels']
     MIXER_BUFFERSIZE = args['mixer_buffersize']
 
-    config = caller_configuration(
+    config = CallerConfiguration(
                 VERSION = VERSION,
                 AUTODART_USER_EMAIL = AUTODART_USER_EMAIL,
                 AUTODART_USER_PASSWORD = AUTODART_USER_PASSWORD,
@@ -300,14 +300,14 @@ if __name__ == "__main__":
             else:
                 ssl_context = make_ssl_devcert(str(AUDIO_MEDIA_PATH / "dummy"), host=DEFAULT_HOST_IP)
 
-        caller_server = caller_server( DEFAULT_HOST_IP, HOST_PORT, path_to_key, path_to_crt, config)
+        CallerServer = CallerServer( DEFAULT_HOST_IP, HOST_PORT, path_to_key, path_to_crt, config)
 
         if WEB > 0 or WEB_SCOREBOARD:
             web_caller = WebCaller('autodarts-caller', DEFAULT_HOST_IP, WEB_PORT, ssl_context, config)
 
-        caller_server.connect_autodarts()
+        CallerServer.connect_autodarts()
 
-        caller_server.websocket_server_thread.join()
+        CallerServer.websocket_server_thread.join()
 
         if WEB > 0 or WEB_SCOREBOARD:
             web_caller.flask_app_thread.join() 

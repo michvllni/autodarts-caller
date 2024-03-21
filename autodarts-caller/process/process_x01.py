@@ -2,12 +2,12 @@ import math
 from globals import BOGEY_NUMBERS
 from utils import ppi
 from caller import setup_caller
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from match_helpers import checkout_only_yourself, increase_checkout_counter, reset_checkouts_counter
 from sound import play_sound_effect, mirror_sounds
-from server import caller_server
+from server import CallerServer
 
-def process_match_x01(m, config: caller_configuration, caller_server: caller_server):
+def process_match_x01(m, config: CallerConfiguration, CallerServer: CallerServer):
     global currentMatch
     global currentMatchHost
     global currentMatchPlayers
@@ -75,7 +75,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
             }
         }
         # ppi(dartsPulled)
-        caller_server.broadcast(dartsPulled)
+        CallerServer.broadcast(dartsPulled)
 
         
         if gameon == False and isGameFinished == False:
@@ -164,7 +164,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                     "dartsThrownValue": points
                 } 
             }
-        caller_server.broadcast(matchWon)
+        CallerServer.broadcast(matchWon)
 
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
@@ -199,7 +199,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                     "dartsThrownValue": points
                 } 
             }
-        caller_server.broadcast(gameWon)
+        CallerServer.broadcast(gameWon)
 
         gameshotState = play_sound_effect('gameshot')
 
@@ -278,7 +278,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                 "special": "TODO"
                 }     
             }
-        caller_server.broadcast(matchStarted)
+        CallerServer.broadcast(matchStarted)
 
         callPlayerNameState = False
         if config.CALL_CURRENT_PLAYER:
@@ -312,7 +312,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                 "special": "TODO"
                 }     
             }
-        caller_server.broadcast(gameStarted)
+        CallerServer.broadcast(gameStarted)
 
         callPlayerNameState = False
         if config.CALL_CURRENT_PLAYER:
@@ -339,7 +339,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                         "mode": variant
                     }       
                 }
-        caller_server.broadcast(busted)
+        CallerServer.broadcast(busted)
 
         play_sound_effect('busted', mod = False)
 
@@ -371,7 +371,7 @@ def process_match_x01(m, config: caller_configuration, caller_server: caller_ser
                 "dartValue": points,        
             }
         }
-        caller_server.broadcast(dartsThrown)
+        CallerServer.broadcast(dartsThrown)
 
         play_sound_effect(points)
 

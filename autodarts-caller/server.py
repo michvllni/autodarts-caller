@@ -12,7 +12,7 @@ import requests
 import math
 
 from globals import AUTODART_WEBSOCKET_URL, AUTODART_MATCHES_URL
-from caller_configuration import caller_configuration
+from caller_configuration import CallerConfiguration
 from match_helpers import listen_to_match, correct_throw, next_game, next_throw, undo_throw, setup_caller
 from utils import ppe,ppi
 from process.process_atc import process_match_atc
@@ -27,9 +27,9 @@ from board import Board
 from caller import caller, caller_title_without_version, ban_caller
 from defaults import DEFAULT_CALLER, DEFAULT_EMPTY_PATH
 
-class caller_server:
+class CallerServer:
     server: WebsocketServer
-    config: caller_configuration
+    config: CallerConfiguration
     ws: websocket.WebSocketApp
     board: Board
     websocket_server_thread: threading.Thread
@@ -592,7 +592,7 @@ class caller_server:
 
 
 
-    def __init__(self, host, port, key, cert, config: caller_configuration):
+    def __init__(self, host, port, key, cert, config: CallerConfiguration):
         self.config = config
         self.connect_autodarts()
         self.board = Board(config)
