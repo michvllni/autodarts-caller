@@ -248,4 +248,4 @@ fi
 
 echo "Arguments: $args"
 
-"$py" autodarts-caller.py $args
+"$py" autodarts-caller/autodarts-caller.py $args

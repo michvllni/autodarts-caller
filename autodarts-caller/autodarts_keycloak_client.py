@@ -3,6 +3,7 @@ from time import sleep
 from keycloak import KeycloakOpenID
 import threading
 
+from globals import AUTODART_AUTH_URL, AUTODART_REALM_NAME
 
 class AutodartsKeycloakClient:
     token_lifetime_fraction = 0.9
@@ -22,10 +23,10 @@ class AutodartsKeycloakClient:
 
     def __init__(self, *, username: str, password: str, client_id: str, client_secret: str = None, debug: bool = False):
         self.kc = KeycloakOpenID(
-            server_url="https://login.autodarts.io",
+            server_url=AUTODART_AUTH_URL,
             client_id=client_id,
             client_secret_key=client_secret,
-            realm_name="autodarts",
+            realm_name=AUTODART_REALM_NAME,
             verify=True
         )
         self.username = username
@@ -56,7 +57,7 @@ class AutodartsKeycloakClient:
             print("Refreshing token", self.expires_at, self.refresh_expires_at)
 
     def __get_or_refresh(self):
-          while self.run:
+        while self.run:
             # if self.debug:
                 # print("Check token ..")
 
