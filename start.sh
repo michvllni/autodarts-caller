@@ -5,7 +5,7 @@
 # ARGUMENTS
 # Please fill out following arguments. There are required ones and optional ones. 
 # If you do not want to fill an optional argument just leave it blank after the equal-sign ("=").
-# In case you need specific argument explaination visit https://github.com/lbormann/autodarts-caller#arguments
+# In case you need specific argument explaination visit https://github.com/lbormann/darts-caller#arguments
 
 
 # REQUIRED:
@@ -40,9 +40,6 @@ caller=
 # -R
 random_caller=
 
-# -L
-random_caller_each_leg=
-
 # -RL
 random_caller_language=
 
@@ -52,20 +49,14 @@ random_caller_gender=
 # -CCP
 call_current_player=
 
-# -CCPA
-call_current_player_always=
+# -CBA
+call_bot_actions=
 
 # -E
 call_every_dart=
 
-# -ESF
-call_every_dart_single_files=
-
 # -PCC
 possible_checkout_call=
-
-# -PCCSF
-possible_checkout_call_single_files=
 
 # -PCCYO
 possible_checkout_call_yourself_only=
@@ -82,23 +73,14 @@ downloads=
 # -DLLA
 downloads_language=
 
-# -DLL
-downloads_limit=
-
 # -DLN
 downloads_name=
 
-# -BLP
-blacklist_path=
+# -ROVP
+remove_old_voice_packs=
 
-# -WEB
-web_caller=
-
-# -WEBSB
-web_caller_scoreboard=
-
-# -WEBP
-web_caller_port=
+# -LPB
+local_playback=
 
 # -WEBDH
 web_caller_disable_https=
@@ -108,9 +90,6 @@ host_port=
 
 # -DEB
 debug=
-
-# -CC
-cert_check=
 
 # -MIF
 mixer_frequency=
@@ -158,9 +137,6 @@ fi
 if [ -n "$random_caller" ]; then
   args="$args -R $random_caller"
 fi
-if [ -n "$random_caller_each_leg" ]; then
-  args="$args -L $random_caller_each_leg"
-fi
 if [ -n "$random_caller_language" ]; then
   args="$args -RL $random_caller_language"
 fi
@@ -170,20 +146,14 @@ fi
 if [ -n "$call_current_player" ]; then
   args="$args -CCP $call_current_player"
 fi
-if [ -n "$call_current_player_always" ]; then
-  args="$args -CCP $call_current_player_always"
+if [ -n "$call_bot_actions" ]; then
+  args="$args -CBA $call_bot_actions"
 fi
 if [ -n "$call_every_dart" ]; then
   args="$args -E $call_every_dart"
 fi
-if [ -n "$call_every_dart_single_files" ]; then
-  args="$args -ESF $call_every_dart_single_files"
-fi
 if [ -n "$possible_checkout_call" ]; then
   args="$args -PCC $possible_checkout_call"
-fi
-if [ -n "$possible_checkout_call_single_files" ]; then
-  args="$args -PCCSF $possible_checkout_call_single_files"
 fi
 if [ -n "$possible_checkout_call_yourself_only" ]; then
   args="$args -PCCYO $possible_checkout_call_yourself_only"
@@ -200,26 +170,17 @@ fi
 if [ -n "$downloads_language" ]; then
   args="$args -DLLA $downloads_language"
 fi
-if [ -n "$downloads_limit" ]; then
-  args="$args -DLL $downloads_limit"
-fi
 if [ -n "$downloads_name" ]; then
   args="$args -DLN $downloads_name"
 fi
-if [ -n "$blacklist_path" ]; then
-  args="$args -BLP $blacklist_path"
+if [ -n "$remove_old_voice_packs" ]; then
+  args="$args -ROVP $remove_old_voice_packs"
 fi
 #if [ -n "$background_audio_volume" ]; then
 #  args="$args -BAV $background_audio_volume"
 #fi
-if [ -n "$web_caller" ]; then
-  args="$args -WEB $web_caller"
-fi
-if [ -n "$web_caller_scoreboard" ]; then
-  args="$args -WEBSB $web_caller_scoreboard"
-fi
-if [ -n "$web_caller_port" ]; then
-  args="$args -WEBP $web_caller_port"
+if [ -n "$local_playback" ]; then
+  args="$args -LPB $local_playback"
 fi
 if [ -n "$web_caller_disable_https" ]; then
   args="$args -WEBDH $web_caller_disable_https"
@@ -229,9 +190,6 @@ if [ -n "$host_port" ]; then
 fi
 if [ -n "$debug" ]; then
   args="$args -DEB $debug"
-fi
-if [ -n "$cert_check" ]; then
-  args="$args -DEB $cert_check"
 fi
 if [ -n "$mixer_frequency" ]; then
   args="$args -MIF $mixer_frequency"
@@ -248,4 +206,4 @@ fi
 
 echo "Arguments: $args"
 
-"$py" autodarts-caller.py $args
+"$py" darts-caller.py $args

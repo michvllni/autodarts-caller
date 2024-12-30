@@ -2,31 +2,33 @@ import os
 import sys
 from pathlib import Path
 import time
-import json
 import base64
 import platform
 import random
 import argparse
-import requests
 from pygame import mixer
-import websocket
-from websocket_server import WebsocketServer
 import threading
 import logging
-from download import download
 import shutil
+import re
 import csv
 import math
-import ssl
-import certifi
 import psutil
 import queue
 from mask import mask
-import re
 from urllib.parse import quote, unquote
-from flask import Flask, render_template, send_from_directory
+import ssl
+from download import download
+import json
+import certifi
+import requests
+import websocket
 from autodarts_keycloak_client import AutodartsKeycloakClient
+from flask import Flask, render_template, send_from_directory, request
+from flask_socketio import SocketIO
 from werkzeug.serving import make_ssl_devcert
+from engineio.async_drivers import threading as th # IMPORTANT
+
 
 
 
@@ -47,39 +49,38 @@ logger.setLevel(logging.INFO)
 logger.addHandler(sh)
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'caller for autodarts'
+socketio = SocketIO(app, async_mode="threading")
+
 
 
 main_directory = os.path.dirname(os.path.realpath(__file__))
 parent_directory = os.path.dirname(main_directory)
 
 
-VERSION = '2.11.0'
+VERSION = '2.14.0'
 
 
 DEFAULT_EMPTY_PATH = ''
 DEFAULT_CALLER_VOLUME = 1.0
 DEFAULT_CALLER = None
 DEFAULT_RANDOM_CALLER = 1
-DEFAULT_RANDOM_CALLER_EACH_LEG = 0
-DEFAULT_RANDOM_CALLER_LANGUAGE = 0
+DEFAULT_RANDOM_CALLER_LANGUAGE = 1
 DEFAULT_RANDOM_CALLER_GENDER = 0
 DEFAULT_CALL_CURRENT_PLAYER = 1
-DEFAULT_CALL_CURRENT_PLAYER_ALWAYS = 0
+DEFAULT_CALL_BOT_ACTIONS = True
 DEFAULT_CALL_EVERY_DART = 0
-DEFAULT_CALL_EVERY_DART_SINGLE_FILES = 1
+DEFAULT_CALL_EVERY_DART_TOTAL_SCORE = True
 DEFAULT_POSSIBLE_CHECKOUT_CALL = 1
-DEFAULT_POSSIBLE_CHECKOUT_CALL_SINGLE_FILES = 0
 DEFAULT_POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY = 0
 DEFAULT_AMBIENT_SOUNDS = 0.0
-DEFAULT_AMBIENT_SOUNDS_AFTER_CALLS = 0
-DEFAULT_DOWNLOADS = True
-DEFAULT_DOWNLOADS_LIMIT = 3
+DEFAULT_AMBIENT_SOUNDS_AFTER_CALLS = False
+DEFAULT_DOWNLOADS = 3
 DEFAULT_DOWNLOADS_LANGUAGE = 1
 DEFAULT_DOWNLOADS_NAME = None
+DEFAULT_REMOVE_OLD_VOICE_PACKS = False
 DEFAULT_BACKGROUND_AUDIO_VOLUME = 0.0
-DEFAULT_WEB_CALLER = 0
-DEFAULT_WEB_CALLER_SCOREBOARD = 0
-DEFAULT_WEB_CALLER_PORT = 5000
+DEFAULT_LOCAL_PLAYBACK = True
 DEFAULT_WEB_CALLER_DISABLE_HTTPS = False
 DEFAULT_HOST_PORT = 8079
 DEFAULT_DEBUG = False
@@ -89,94 +90,30 @@ DEFAULT_MIXER_SIZE = 32
 DEFAULT_MIXER_CHANNELS = 2
 DEFAULT_MIXER_BUFFERSIZE = 4096
 DEFAULT_DOWNLOADS_PATH = 'caller-downloads-temp'
-DEFAULT_CALLERS_BANNED_FILE = 'autodarts-caller-banned.txt'
+DEFAULT_CALLERS_BANNED_FILE = 'banned.txt'
+DEFAULT_CALLERS_FAVOURED_FILE = 'favoured.txt'
 DEFAULT_HOST_IP = '0.0.0.0'
 
 
-AUTODART_URL = 'https://autodarts.io'
-AUTODART_AUTH_URL = 'https://login.autodarts.io/'
-AUTODART_CLIENT_ID = 'wusaaa-caller-for-autodarts'
-AUTODART_REALM_NAME = 'autodarts'
-AUTODART_CLIENT_SECRET = "4hg5d4fddW7rqgoY8gZ42aMpi2vjLkzf"
-AUTODART_LOBBIES_URL = 'https://api.autodarts.io/gs/v0/lobbies/'
-AUTODART_MATCHES_URL = 'https://api.autodarts.io/gs/v0/matches/'
-AUTODART_BOARDS_URL = 'https://api.autodarts.io/bs/v0/boards/'
-AUTODART_USERS_URL = 'https://api.autodarts.io/as/v0/users/'
-AUTODART_WEBSOCKET_URL = 'wss://api.autodarts.io/ms/v0/subscribe'
+AUTODARTS_CLIENT_ID = 'wusaaa-caller-for-autodarts'
+AUTODARTS_REALM_NAME = 'autodarts'
+AUTODARTS_CLIENT_SECRET = "4hg5d4fddW7rqgoY8gZ42aMpi2vjLkzf"
+AUTODARTS_URL = 'https://autodarts.io'
+AUTODARTS_AUTH_URL = 'https://login.autodarts.io/'
+AUTODARTS_LOBBIES_URL = 'https://api.autodarts.io/gs/v0/lobbies/'
+AUTODARTS_MATCHES_URL = 'https://api.autodarts.io/gs/v0/matches/'
+AUTODARTS_BOARDS_URL = 'https://api.autodarts.io/bs/v0/boards/'
+AUTODARTS_USERS_URL = 'https://api.autodarts.io/as/v0/users/'
+AUTODARTS_WEBSOCKET_URL = 'wss://api.autodarts.io/ms/v0/subscribe'
 
 SUPPORTED_SOUND_FORMATS = ['.mp3', '.wav']
-SUPPORTED_GAME_VARIANTS = ['X01', 'Cricket', 'Random Checkout', 'ATC']
+SUPPORTED_GAME_VARIANTS = ['X01', 'Cricket', 'Random Checkout', 'ATC', 'RTW']
 SUPPORTED_CRICKET_FIELDS = [15, 16, 17, 18, 19, 20, 25]
 BOGEY_NUMBERS = [169, 168, 166, 165, 163, 162, 159]
 TEMPLATE_FILE_ENCODING = 'utf-8-sig'
 
-CALLER_LANGUAGES = {
-    1: ['english', 'en', ],
-    2: ['french', 'fr', ],
-    3: ['russian', 'ru', ],
-    4: ['german', 'de', ],
-    5: ['spanish', 'es', ],
-    6: ['dutch', 'nl', ],
-}
-CALLER_GENDERS = {
-    1: ['female', 'f'],
-    2: ['male', 'm'],
-}
-CALLER_PROFILES = {
-    #------------------------------------------------------------------------------------------------
-    # GOOGLE / Cloud TTS
-    #------------------------------------------------------------------------------------------------
-    # -- fr-FR --
-    'fr-FR-Wavenet-E-FEMALE': ('https://add.arnes-design.de/ADC/fr-FR-Wavenet-E-FEMALE-v3.zip', 3),
-    'fr-FR-Wavenet-B-MALE': ('https://add.arnes-design.de/ADC/fr-FR-Wavenet-B-MALE-v3.zip', 3),
-    # -- ru-RU --
-    'ru-RU-Wavenet-E-FEMALE': ('https://add.arnes-design.de/ADC/ru-RU-Wavenet-E-FEMALE-v3.zip', 3),
-    'ru-RU-Wavenet-B-MALE': ('https://add.arnes-design.de/ADC/ru-RU-Wavenet-B-MALE-v3.zip', 3),
-    # -- de-DE --
-    'de-DE-Wavenet-F-FEMALE': ('https://add.arnes-design.de/ADC/de-DE-Wavenet-F-FEMALE-v3.zip', 3),  
-    'de-DE-Wavenet-B-MALE': ('https://add.arnes-design.de/ADC/de-DE-Wavenet-B-MALE-v3.zip', 3),
-    # -- es-ES --
-    'es-ES-Wavenet-C-FEMALE': ('https://add.arnes-design.de/ADC/es-ES-Wavenet-C-FEMALE-v3.zip', 3),  
-    'es-ES-Wavenet-B-MALE': ('https://add.arnes-design.de/ADC/es-ES-Wavenet-B-MALE-v3.zip', 3),
-    # -- nl-NL --
-    'nl-NL-Wavenet-B-MALE': ('https://add.arnes-design.de/ADC/nl-NL-Wavenet-B-MALE-v3.zip', 3),  
-    'nl-NL-Wavenet-D-FEMALE': ('https://add.arnes-design.de/ADC/nl-NL-Wavenet-D-FEMALE-v3.zip', 3),
-    # -- en-US --
-    'en-US-Wavenet-E-FEMALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-E-FEMALE-v4.zip', 4),
-    'en-US-Wavenet-G-FEMALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-G-FEMALE-v4.zip', 4),
-    'en-US-Wavenet-A-MALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-A-MALE-v4.zip', 4),
-    'en-US-Wavenet-H-FEMALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-H-FEMALE-v4.zip', 4),
-    'en-US-Wavenet-I-MALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-I-MALE-v4.zip', 4),
-    'en-US-Wavenet-J-MALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-J-MALE-v4.zip', 4),
-    'en-US-Wavenet-F-FEMALE': ('https://add.arnes-design.de/ADC/en-US-Wavenet-F-FEMALE-v4.zip', 4),
+WEB_DB_NAME = "ADC1"
 
-    #------------------------------------------------------------------------------------------------
-    # AMAZON / AWS Polly
-    #------------------------------------------------------------------------------------------------
-    # -- nl-NL --
-    'nl-NL-Laura-Female': ('https://add.arnes-design.de/ADC/nl-NL-Laura-Female-v2.zip', 2),
-    # -- de-AT --
-    'de-AT-Hannah-Female': ('https://add.arnes-design.de/ADC/de-AT-Hannah-Female-v2.zip', 2),
-    # -- de-DE --
-    'de-DE-Vicki-Female': ('https://add.arnes-design.de/ADC/de-DE-Vicki-Female-v5.zip', 5),  
-    'de-DE-Daniel-Male': ('https://add.arnes-design.de/ADC/de-DE-Daniel-Male-v5.zip', 5),
-    # -- en-US --
-    'en-US-Ivy-Female': ('https://add.arnes-design.de/ADC/en-US-Ivy-Female-v5.zip', 5),
-    'en-US-Joey-Male': ('https://add.arnes-design.de/ADC/en-US-Joey-Male-v6.zip', 6),
-    'en-US-Joanna-Female': ('https://add.arnes-design.de/ADC/en-US-Joanna-Female-v6.zip', 6),
-    'en-US-Matthew-Male': ('https://add.arnes-design.de/ADC/en-US-Matthew-Male-v3.zip', 3),
-    'en-US-Danielle-Female': ('https://add.arnes-design.de/ADC/en-US-Danielle-Female-v3.zip', 3),
-    'en-US-Kimberly-Female': ('https://add.arnes-design.de/ADC/en-US-Kimberly-Female-v2.zip', 2),
-    'en-US-Ruth-Female': ('https://add.arnes-design.de/ADC/en-US-Ruth-Female-v2.zip', 2),
-    'en-US-Salli-Female': ('https://add.arnes-design.de/ADC/en-US-Salli-Female-v2.zip', 2),
-    'en-US-Kevin-Male': ('https://add.arnes-design.de/ADC/en-US-Kevin-Male-v2.zip', 2),
-    'en-US-Justin-Male': ('https://add.arnes-design.de/ADC/en-US-Justin-Male-v2.zip', 2),
-    'en-US-Stephen-Male': ('https://add.arnes-design.de/ADC/en-US-Stephen-Male-v5.zip', 5),  
-    'en-US-Kendra-Female': ('https://add.arnes-design.de/ADC/en-US-Kendra-Female-v6.zip', 6),
-    'en-US-Gregory-Male': ('https://add.arnes-design.de/ADC/en-US-Gregory-Male-v3.zip', 3),
-    
-    # 'TODONAME': ('TODOLINK', TODOVERSION),  
-}
 FIELD_COORDS = {
     "0": {"x": 0.016160134143785285,"y": 1.1049884720184449},
     "S1": {"x": 0.2415216935652902,"y": 0.7347516243974009}, 
@@ -243,7 +180,73 @@ FIELD_COORDS = {
     "50": {"x": -0.007777097366809472, "y": 0.0022657685241886157},
 }
 
-WEB_DB_NAME = "ADC1"
+CALLER_LANGUAGES = {
+    1: ['english', 'en', ],
+    2: ['french', 'fr', ],
+    3: ['russian', 'ru', ],
+    4: ['german', 'de', ],
+    5: ['spanish', 'es', ],
+    6: ['dutch', 'nl', ],
+}
+CALLER_GENDERS = {
+    1: ['female', 'f'],
+    2: ['male', 'm'],
+}
+CALLER_PROFILES = {
+    #------------------------------------------------------------------------------------------------
+    # AMAZON / AWS Polly
+    #------------------------------------------------------------------------------------------------
+
+    # -- ru-RU --
+    # 'ru-RU-TODO': ('https://add.arnes-design.de/ADC/TODOLINK.zip', 1), 
+    # 'ru-RU-TODO': ('https://add.arnes-design.de/ADC/TODOLINK.zip', 1), 
+    
+    # -- nl-NL --
+    'nl-NL-Laura-Female': ('https://add.arnes-design.de/ADC/nl-NL-Laura-Female-v4.zip', 4),
+
+    # -- fr-FR --
+    'fr-FR-Remi-Male': ('https://add.arnes-design.de/ADC/fr-FR-Remi-Male-v2.zip', 2), 
+    'fr-FR-Lea-Female': ('https://add.arnes-design.de/ADC/fr-FR-Lea-Female-v2.zip', 2), 
+    
+    # -- es-ES --
+    'es-ES-Lucia-Female': ('https://add.arnes-design.de/ADC/es-ES-Lucia-Female-v2.zip', 2), 
+    'es-ES-Sergio-Male': ('https://add.arnes-design.de/ADC/es-ES-Sergio-Male-v2.zip', 2), 
+
+    # -- de-AT --
+    'de-AT-Hannah-Female': ('https://add.arnes-design.de/ADC/de-AT-Hannah-Female-v4.zip', 4),
+    
+    # -- de-DE --
+    'de-DE-Vicki-Female': ('https://add.arnes-design.de/ADC/de-DE-Vicki-Female-v7.zip', 7),  
+    'de-DE-Daniel-Male': ('https://add.arnes-design.de/ADC/de-DE-Daniel-Male-v7.zip', 7),
+    
+    # -- en-US --
+    'en-US-Ivy-Female': ('https://add.arnes-design.de/ADC/en-US-Ivy-Female-v7.zip', 7),
+    'en-US-Joey-Male': ('https://add.arnes-design.de/ADC/en-US-Joey-Male-v8.zip', 8),
+    'en-US-Joanna-Female': ('https://add.arnes-design.de/ADC/en-US-Joanna-Female-v8.zip', 8),
+    'en-US-Matthew-Male': ('https://add.arnes-design.de/ADC/en-US-Matthew-Male-v5.zip', 5),
+    'en-US-Danielle-Female': ('https://add.arnes-design.de/ADC/en-US-Danielle-Female-v5.zip', 5),
+    'en-US-Kimberly-Female': ('https://add.arnes-design.de/ADC/en-US-Kimberly-Female-v4.zip', 4),
+    'en-US-Ruth-Female': ('https://add.arnes-design.de/ADC/en-US-Ruth-Female-v4.zip', 4),
+    'en-US-Salli-Female': ('https://add.arnes-design.de/ADC/en-US-Salli-Female-v4.zip', 4),
+    'en-US-Kevin-Male': ('https://add.arnes-design.de/ADC/en-US-Kevin-Male-v4.zip', 4),
+    'en-US-Justin-Male': ('https://add.arnes-design.de/ADC/en-US-Justin-Male-v4.zip', 4),
+    'en-US-Stephen-Male': ('https://add.arnes-design.de/ADC/en-US-Stephen-Male-v7.zip', 7),  
+    'en-US-Kendra-Female': ('https://add.arnes-design.de/ADC/en-US-Kendra-Female-v8.zip', 8),
+    'en-US-Gregory-Male': ('https://add.arnes-design.de/ADC/en-US-Gregory-Male-v5.zip', 5),
+    
+    # -- en-GB --
+    'en-GB-Amy-Female': ('https://add.arnes-design.de/ADC/en-GB-Amy-Female-v3.zip', 3),
+    'en-GB-Arthur-Male': ('https://add.arnes-design.de/ADC/en-GB-Arthur-Male-v3.zip', 3),
+
+
+    #------------------------------------------------------------------------------------------------
+    # MURF
+    #------------------------------------------------------------------------------------------------
+    # 'theo-m-english-uk': ('https://add.arnes-design.de/ADC/theo-m-english-uk-v2.zip', 2),
+    
+    # 'TODONAME': ('TODOLINK', TODOVERSION),  
+}
+
 
 
 
@@ -270,7 +273,7 @@ def same_drive(path1, path2):
     drive2 = os.path.splitdrive(path2)[0]
     return drive1 == drive2
 
-def check_paths(main_directory, audio_media_path, audio_media_path_shared, blacklist_path):
+def check_paths(main_directory, audio_media_path, audio_media_path_shared):
     try:
         main_directory = get_executable_directory()
         errors = None
@@ -279,8 +282,6 @@ def check_paths(main_directory, audio_media_path, audio_media_path_shared, black
         
         if audio_media_path_shared != DEFAULT_EMPTY_PATH:
             audio_media_path_shared = os.path.normpath(audio_media_path_shared)
-        if blacklist_path != DEFAULT_EMPTY_PATH:
-            blacklist_path = os.path.normpath(blacklist_path)
 
         if same_drive(audio_media_path, main_directory) == True and os.path.commonpath([audio_media_path, main_directory]) == main_directory:
             errors = 'AUDIO_MEDIA_PATH (-M) is a subdirectory of MAIN_DIRECTORY.'
@@ -295,9 +296,6 @@ def check_paths(main_directory, audio_media_path, audio_media_path_shared, black
             elif same_drive(audio_media_path, audio_media_path_shared) == True and audio_media_path == audio_media_path_shared:
                 errors = 'AUDIO_MEDIA_PATH (-M) is equal to AUDIO_MEDIA_SHARED (-MS). This is NOT allowed.'
 
-        if blacklist_path != '':
-            if same_drive(blacklist_path, main_directory) == True and os.path.commonpath([blacklist_path, main_directory]) == main_directory:
-                errors = 'BLACKLIST_FILE_PATH (-BLP) is a subdirectory of MAIN_DIRECTORY. This is NOT allowed.'
 
     except Exception as e:
         errors = f'Path validation failed: {e}'
@@ -306,7 +304,6 @@ def check_paths(main_directory, audio_media_path, audio_media_path_shared, black
         ppi("main_directory: " + main_directory)
         ppi("audio_media_path: " + str(audio_media_path))
         ppi("audio_media_path_shared: " + str(audio_media_path_shared))
-        ppi("blacklist_path: " + str(blacklist_path))
 
     return errors
 
@@ -333,7 +330,7 @@ def versionize_speaker(speaker_name, speaker_version):
     return speaker_versionized
 
 def download_callers(): 
-    if DOWNLOADS:
+    if DOWNLOADS > 0:
         download_list = CALLER_PROFILES
 
         # versionize, exclude bans, force download-name
@@ -363,11 +360,10 @@ def download_callers():
 
         
         if dl_name != DEFAULT_DOWNLOADS_NAME:
-            ppi("Downloader: filter for name: " + str(dl_name))
+            pass
         else:
             # filter for language
             if DOWNLOADS_LANGUAGE > 0:
-                ppi("Downloader: filter for language: " + str(DOWNLOADS_LANGUAGE))
                 downloads_filtered = {}
                 for speaker_name, speaker_download_url in download_list.items():
                     caller_language_key = grab_caller_language(speaker_name)
@@ -377,9 +373,8 @@ def download_callers():
                 download_list = downloads_filtered
 
             # filter for limit
-            if DOWNLOADS_LIMIT > 0 and len(download_list) > 0 and DOWNLOADS_LIMIT < len(download_list):
-                ppi("Downloader: limit to: " + str(DOWNLOADS_LIMIT))
-                download_list = {k: download_list[k] for k in list(download_list.keys())[-DOWNLOADS_LIMIT:]}
+            if len(download_list) > 0 and DOWNLOADS < len(download_list):
+                download_list = {k: download_list[k] for k in list(download_list.keys())[-DOWNLOADS:]}
 
 
 
@@ -411,7 +406,7 @@ def download_callers():
                 # LOCAL-Download
                 # shutil.copyfile('C:\\Users\\Luca\\Desktop\\download.zip', os.path.join(DOWNLOADS_PATH, 'download.zip'))
 
-                ppi("Extracting voice-pack..")
+                ppi("EXTRACTING VOICE-PACK..")
 
                 shutil.unpack_archive(dest, DOWNLOADS_PATH)
                 os.remove(dest)
@@ -490,19 +485,20 @@ def download_callers():
                         os.remove(current_sound)
 
                 shutil.move(dest, AUDIO_MEDIA_PATH)
-                ppi('Voice-pack added: ' + cpr_name)
+                ppi('VOICE-PACK ADDED: ' + cpr_name)
 
             except Exception as e:
-                ppe('Failed to process voice-pack: ' + cpr_name, e)
+                ppe('FAILED TO PROCESS VOICE-PACK: ' + cpr_name, e)
             finally:
                 shutil.rmtree(DOWNLOADS_PATH, ignore_errors=True)
 
 def ban_caller(only_change):
     global caller_title
+    global caller_title_without_version
 
     # ban/change not possible as caller is specified by user or current caller is 'None'
     if (CALLER != DEFAULT_CALLER and CALLER != '' and caller_title != '' and caller_title != None):
-        return
+       return
     
     if only_change:
         ccc_success = play_sound_effect('control_change_caller', wait_for_last = False, volume_mult = 1.0, mod = False)
@@ -514,53 +510,108 @@ def ban_caller(only_change):
         if not cbc_success:
             play_sound_effect('control', wait_for_last = False, volume_mult = 1.0, mod = False)
 
-        if BLACKLIST_PATH != DEFAULT_EMPTY_PATH:
-            global caller_profiles_banned
-            caller_profiles_banned.append(caller_title)
-            path_to_callers_banned_file = os.path.join(BLACKLIST_PATH, DEFAULT_CALLERS_BANNED_FILE)   
-            with open(path_to_callers_banned_file, 'w') as bcf:
-                for cpb in caller_profiles_banned:
-                    bcf.write(cpb.lower() + '\n')
+
+        global caller_profiles_banned
+        caller_profiles_banned.append(caller_title_without_version)
+        path_to_callers_banned_file = os.path.join(AUDIO_MEDIA_PATH, DEFAULT_CALLERS_BANNED_FILE)   
+        with open(path_to_callers_banned_file, 'w') as bcf:
+            for cpb in caller_profiles_banned:
+                bcf.write(cpb.lower() + '\n')
 
     mirror_sounds()
-    setup_caller()
-
-    if play_sound_effect('hi', wait_for_last = False):
-        mirror_sounds()
+    setup_caller(hi=True)
     
+def favor_caller(unfavor):
+    global caller_title_without_version
+    global caller_profiles_favoured
 
+    if caller_title_without_version == '':
+        return
+    
+    if unfavor:
+        caller_profiles_favoured.remove(caller_title_without_version)
+    else:
+        caller_profiles_favoured.append(caller_title_without_version)
 
-def load_callers_banned(preview=False):
+    path_to_callers_favoured_file = os.path.join(AUDIO_MEDIA_PATH, DEFAULT_CALLERS_FAVOURED_FILE)   
+    with open(path_to_callers_favoured_file, 'w') as fcf:
+        for cpf in caller_profiles_favoured:
+            fcf.write(cpf.lower() + '\n')
+
+def delete_old_callers():
+    if REMOVE_OLD_VOICE_PACKS:
+        folders = os.listdir(AUDIO_MEDIA_PATH)
+
+        # store highest version for every voice-pack
+        voice_packs = {}
+
+        for folder in folders:
+            # check if folder-name fits pattern "name-vX" or "name"
+            match = re.match(r"(.+?)(?:-v(\d+))?$", folder)
+            if match:
+                name = match.group(1)
+                version = int(match.group(2)) if match.group(2) else 0
+
+                # updates highest version for that voice-pack
+                if name not in voice_packs or version > voice_packs[name]:
+                    voice_packs[name] = version
+
+        # deletes all old voice-pack folders
+        for folder in folders:
+            match = re.match(r"(.+?)(?:-v(\d+))?$", folder)
+            if match:
+                name = match.group(1)
+                version = int(match.group(2)) if match.group(2) else 0
+
+                if version < voice_packs[name]:
+                    folder_path = os.path.join(AUDIO_MEDIA_PATH, folder)
+                    shutil.rmtree(folder_path)
+                    ppi(f"Removed old voice-pack: {folder}")
+
+def load_callers_banned():
     global caller_profiles_banned
     caller_profiles_banned = []
     
-    if BLACKLIST_PATH == DEFAULT_EMPTY_PATH:
-        return
-    
-    path_to_callers_banned_file = os.path.join(BLACKLIST_PATH, DEFAULT_CALLERS_BANNED_FILE)
+    path_to_callers_banned_file = os.path.join(AUDIO_MEDIA_PATH, DEFAULT_CALLERS_BANNED_FILE)
     
     if os.path.exists(path_to_callers_banned_file):
         try:
             with open(path_to_callers_banned_file, 'r') as bcf:
                 caller_profiles_banned = list(set(line.strip() for line in bcf))
-                if preview:
-                    banned_info = f"Banned voice-packs: {len(caller_profiles_banned)} [ - "
-                    for cpb in caller_profiles_banned:
-                        banned_info += cpb + " - "
-                    banned_info += "]"
-                    ppi(banned_info)
+                display_caller_list(caller_profiles_banned, "BANNED VOICE-PACKS")
         except FileExistsError:
             pass
     else:
-        # directory = os.path.dirname(path_to_callers_banned_file)
-        # os.makedirs(directory, exist_ok=True)
         try:
             with open(path_to_callers_banned_file, 'x'):
                 ppi(f"'{path_to_callers_banned_file}' created successfully.")
         except Exception as e:
             ppe(f"Failed to create '{path_to_callers_banned_file}'", e)
 
+def load_callers_favoured():
+    global caller_profiles_favoured
+    caller_profiles_favoured = []
+        
+    path_to_callers_favoured_file = os.path.join(AUDIO_MEDIA_PATH, DEFAULT_CALLERS_FAVOURED_FILE)
+    
+    if os.path.exists(path_to_callers_favoured_file):
+        try:
+            with open(path_to_callers_favoured_file, 'r') as bcf:
+                caller_profiles_favoured = list(set(line.strip() for line in bcf))
+                display_caller_list(caller_profiles_favoured, "FAVOURED VOICE-PACKS")
+        except FileExistsError:
+            pass
+    else:
+        try:
+            with open(path_to_callers_favoured_file, 'x'):
+                ppi(f"'{path_to_callers_favoured_file}' created successfully.")
+        except Exception as e:
+            ppe(f"Failed to create '{path_to_callers_favoured_file}'", e)
+
 def load_callers():
+    global callers_profiles_all
+    callers_profiles_all = []
+
     # load shared-sounds
     shared_sounds = {}
     if AUDIO_MEDIA_PATH_SHARED != DEFAULT_EMPTY_PATH: 
@@ -574,44 +625,45 @@ def load_callers():
                         shared_sounds[key].append(full_path)
                     else:
                         shared_sounds[key] = [full_path]
-
-    load_callers_banned()
         
     # load callers
-    callers = []
     for root, dirs, files in os.walk(AUDIO_MEDIA_PATH):
+
         file_dict = {}
         for filename in files:
             if filename.endswith(tuple(SUPPORTED_SOUND_FORMATS)):
-                full_path = os.path.join(root, filename)
                 base = os.path.splitext(filename)[0]
                 key = base.split('+', 1)[0]
+
+                full_path = os.path.join(root, filename)
                 if key in file_dict:
                     file_dict[key].append(full_path)
                 else:
                     file_dict[key] = [full_path]
         if file_dict:
-            callers.append((root, file_dict))
+            callers_profiles_all.append((root, file_dict))
         
     # add shared-sounds to callers
     for ss_k, ss_v in shared_sounds.items():
-        for (root, c_keys) in callers:
-            if ss_k in c_keys:
-                # for sound_variant in ss_v:
-                #     c_keys[ss_k].append(sound_variant)
-                if CALL_EVERY_DART == True and CALL_EVERY_DART_SINGLE_FILE == True:
-                    c_keys[ss_k] = ss_v
-                else:
-                    for sound_variant in ss_v:
-                        c_keys[ss_k].append(sound_variant)
-            else:
-                c_keys[ss_k] = ss_v
+        for (root, c_keys) in callers_profiles_all:
+            c_keys[ss_k] = ss_v
 
 
-    return callers
+def display_caller_list(caller_list, text):
+    display = f"{text}: {len(caller_list)}"
+    ppi(display, None)
 
-def grab_caller_name(caller_root):
-    return os.path.basename(os.path.normpath(caller_root[0])).lower()
+    display = f"[ - "
+    for c in caller_list:
+        display += c + " - "
+    display += "]"
+    ppi(display)
+
+def grab_caller_name(caller_path):
+    caller_name_with_version = os.path.basename(os.path.normpath(caller_path)).lower()
+    parts = caller_name_with_version.split('-')
+    caller_name_without_version = "-".join(parts[:-1]) if parts[-1].startswith('v') else caller_name_with_version    
+    return (caller_name_without_version, caller_name_with_version)
 
 def grab_caller_language(caller_name):
     first_occurrences = []
@@ -647,120 +699,126 @@ def grab_caller_gender(caller_name):
     first_occurrences.sort(key=lambda x: x[0])
     return first_occurrences[0][1]
 
-def filter_most_recent_version(path_list):
-    def get_last_component(path):
-        return os.path.basename(os.path.normpath(path))
-
-    def is_versioned(entry):
-        return bool(re.search(r'-v\d+$', entry))
-
-    def highest_version(base_entry):
-        versions = [int(re.search(r'-v(\d+)$', x[0]).group(1)) for x in path_list if base_entry + "-v" in x[0]]
-        return max(versions, default=None)
-
-    base_entries = set()
-    for item in path_list:
-        entry = get_last_component(item[0])
-        if not is_versioned(entry):
-            base_entries.add(entry)
-
-    filtered_list = []
-    for item in path_list:
-        entry = get_last_component(item[0])
-        base_entry = re.sub(r'-v\d+$', '', entry)
-        highest_ver = highest_version(base_entry)
-        if highest_ver is not None and entry == base_entry + "-v" + str(highest_ver):
-            filtered_list.append(item)
-        elif highest_ver is None:
-            filtered_list.append(item)
+def filter_most_recent_versions(voices):
+    max_versions = {}
+    for voice, data in voices:
+        parts = voice.split('-')
+        key = '-'.join(parts[:-1]) if parts[-1].startswith('v') else voice
+        version = int(parts[-1][1:]) if parts[-1].startswith('v') else 0
+        if key not in max_versions or version > max_versions[key][0]:
+            max_versions[key] = (version, data)
     
-    return filtered_list
+    filtered_voices = []
+    for voice, data in voices:
+        parts = voice.split('-')
+        key = '-'.join(parts[:-1]) if parts[-1].startswith('v') else voice
+        version = int(parts[-1][1:]) if parts[-1].startswith('v') else 0
+        if version == max_versions[key][0]:
+            filtered_voices.append((voice, data))
+    
+    return filtered_voices
 
-def setup_caller():
+def setup_caller(hi = False):
+    global callers_profiles_all
+    global caller_profiles_banned
+    global CALLER
     global caller
     global caller_title
     global caller_title_without_version
-    global caller_profiles_banned
+    global callers_available
+    global caller_profiles_favoured
     caller = None
     caller_title = ''
     caller_title_without_version = ''
 
-    callers = load_callers()
-    ppi(str(len(callers)) + ' voice-pack(s) found.')
 
-    if CALLER != DEFAULT_CALLER and CALLER != '':
-        wished_caller = CALLER.lower()
-        for c in callers:
-            caller_name = os.path.basename(os.path.normpath(c[0])).lower()
-            ppi(caller_name, None, '')
-            if caller == None and caller_name == wished_caller:
-                caller = c
+    # filter callers by blacklist, language, gender and most recent version
+    callers_filtered = []
+    for c in callers_profiles_all:
+        (caller_name, caller_name_with_version) = grab_caller_name(c[0])
 
-    else:
-        for c in callers: 
-            caller_name = grab_caller_name(c)
-            ppi(caller_name, None, '')
+        if caller_name in caller_profiles_banned or caller_name_with_version in caller_profiles_banned:
+            continue
 
-        if RANDOM_CALLER == False:
-            caller = callers[0]
+        if CALLER != DEFAULT_CALLER and CALLER != '' and caller_name_with_version.startswith(CALLER.lower()):
+            pass
         else:
-            callers_filtered = []
-            for c in callers:
-                caller_name = grab_caller_name(c)
-
-                if caller_name in caller_profiles_banned or caller_name.split("-v")[0] in caller_profiles_banned:
+            if RANDOM_CALLER_LANGUAGE != 0:
+                caller_language_key = grab_caller_language(caller_name)
+                if caller_language_key != RANDOM_CALLER_LANGUAGE:
                     continue
-
-                if RANDOM_CALLER_LANGUAGE != 0:
-                    caller_language_key = grab_caller_language(caller_name)
-                    if caller_language_key != RANDOM_CALLER_LANGUAGE:
-                        continue
+            if RANDOM_CALLER_GENDER != 0:
+                caller_gender_key = grab_caller_gender(caller_name)
+                if caller_gender_key != RANDOM_CALLER_GENDER:
+                    continue      
+        callers_filtered.append(c)
+    if len(callers_filtered) > 0:
+        callers_filtered = filter_most_recent_versions(callers_filtered)
+            
+    # store available caller names
+    callers_available = []
+    for cf in callers_filtered:
+        (caller_name, caller_name_with_version) = grab_caller_name(cf[0])
+        callers_available.append(caller_name)
     
-                if RANDOM_CALLER_GENDER != 0:
-                    caller_gender_key = grab_caller_gender(caller_name)
-                    if caller_gender_key != RANDOM_CALLER_GENDER:
-                        continue
-                callers_filtered.append(c)
+    display_caller_list(callers_available, "AVAILABLE VOICE-PACKS")
 
-            if len(callers_filtered) > 0:
-                # reduce to most recent version
-                callers_filtered = filter_most_recent_version(callers_filtered)
+
+    # specific caller
+    if CALLER != DEFAULT_CALLER and CALLER != '':
+        (wished_caller, wished_caller_with_version) = grab_caller_name(CALLER)
+        for cf in callers_filtered:
+            (caller_name, caller_name_with_version) = grab_caller_name(cf[0])         
+
+            if caller_name_with_version.startswith(wished_caller_with_version):
+                caller = cf
+                break
+            elif caller_name_with_version.startswith(wished_caller):
+                ppi("NOTICE: '" + wished_caller_with_version + "' is an older voice-pack version. I am now using most recent version: " + "'" + caller_name_with_version + "'", None, '')
+                caller = cf
+                break
+
+
+    # random caller
+    else:
+        if len(callers_filtered) > 0:
+            if RANDOM_CALLER == 0:
+                caller = callers_filtered[0]
+            else:
                 caller = random.choice(callers_filtered)
+        else:
+            caller = None
 
-    if(caller != None):
+    # set caller
+    if caller is not None:
         for sound_file_key, sound_file_values in caller[1].items():
             sound_list = list()
             for sound_file_path in sound_file_values:
                 sound_list.append(sound_file_path)
             caller[1][sound_file_key] = sound_list
 
-        caller_title = str(os.path.basename(os.path.normpath(caller[0])))
-        caller_title_without_version = caller_title.split("-v")[0].lower()
-        ppi("Your current caller: " + caller_title + " knows " + str(len(caller[1].values())) + " Sound-file-key(s)")
+        (caller_name, caller_name_with_version) = grab_caller_name(caller[0])  
+        caller_title = caller_name_with_version
+        caller_title_without_version = caller_name
+
+        ppi("", None)
+        ppi("CURRENT VOICE-PACK: " + caller_title + " (" + str(len(caller[1].values())) + " Sound-file-keys)", None)
+        ppi("", None)
         # ppi(caller[1])
         caller = caller[1]
 
-
-        # files = []
-        # for key, value in caller.items():
-        #     for sound_file in value:
-        #         files.append(quote(sound_file, safe=""))
-        # get_event = {
-        #     "event": "get",
-        #     "caller": caller_title_without_version,
-        #     "files": files
-        # }
-        # if server != None:
-        #   broadcast(get_event)
-
         welcome_event = {
             "event": "welcome",
-            "caller": caller_title_without_version,
-            "specific": CALLER != DEFAULT_CALLER and CALLER != '',
-            "banable": BLACKLIST_PATH != DEFAULT_EMPTY_PATH
+            "callersAvailable": callers_available,
+            "callersFavoured": caller_profiles_favoured,
+            "caller": caller_title_without_version
         }
-        if server != None:
-            broadcast(welcome_event)
+        broadcast(welcome_event)
+
+        if hi and play_sound_effect('hi', wait_for_last=False):
+            mirror_sounds()
+    else:
+        ppi('NO CALLERS AVAILABLE')
 
 
 def check_sounds(sounds_list):
@@ -769,7 +827,7 @@ def check_sounds(sounds_list):
     try:
         for s in sounds_list:
             caller[s]
-    except Exception as e:
+    except Exception:
         all_sounds_available = False
     return all_sounds_available
 
@@ -778,20 +836,19 @@ def play_sound(sound, wait_for_last, volume_mult, mod):
     if AUDIO_CALLER_VOLUME is not None:
         volume = AUDIO_CALLER_VOLUME * volume_mult
 
-    if WEB > 0:
-        global mirror_files
-        global caller_title_without_version
-        
-        mirror_file = {
-                    "caller": caller_title_without_version,
-                    "path": quote(sound, safe=""),
-                    "wait": wait_for_last,
-                    "volume": volume,
-                    "mod": mod
-                }
-        mirror_files.append(mirror_file)
+    global mirror_files
+    global caller_title_without_version
+    
+    mirror_file = {
+                "caller": caller_title_without_version,
+                "path": quote(sound, safe=""),
+                "wait": wait_for_last,
+                "volume": volume,
+                "mod": mod
+            }
+    mirror_files.append(mirror_file)
 
-    if WEB == 0 or WEB == 2:
+    if LOCAL_PLAYBACK:
         if wait_for_last == True:
             while mixer.get_busy():
                 time.sleep(0.01)
@@ -800,7 +857,7 @@ def play_sound(sound, wait_for_last, volume_mult, mod):
         s.set_volume(volume)
         s.play()
 
-    ppi('Playing: "' + sound + '"')
+    ppi('Play: "' + sound + '"')
 
 def play_sound_effect(sound_file_key, wait_for_last = False, volume_mult = 1.0, mod = True):
     try:
@@ -841,6 +898,7 @@ def mirror_sounds():
 
 
 def start_board():
+
     try:
         res = requests.put(boardManagerAddress + '/api/detection/start')
         # res = requests.put(boardManagerAddress + '/api/start')
@@ -879,7 +937,7 @@ def get_player_average(user_id, variant = 'x01', limit = '100'):
     # get
     # https://api.autodarts.io/as/v0/users/<user-id>/stats/<variant>?limit=<limit>
     try:
-        res = requests.get(AUTODART_USERS_URL + user_id + "/stats/" + variant + "?limit=" + limit, headers={'Authorization': 'Bearer ' + kc.access_token})
+        res = requests.get(AUTODARTS_USERS_URL + user_id + "/stats/" + variant + "?limit=" + limit, headers={'Authorization': 'Bearer ' + kc.access_token})
         m = res.json()
         # ppi(m)
         return m['average']['average']
@@ -887,20 +945,21 @@ def get_player_average(user_id, variant = 'x01', limit = '100'):
         ppe('Receive player-stats failed', e)
         return None
 
-def next_game():
-    if play_sound_effect('control_next_game', wait_for_last = False, volume_mult = 1.0, mod = False) == False:
+def start_match(lobbyId):
+    if play_sound_effect('control_start_match', wait_for_last = False, volume_mult = 1.0, mod = False) == False:
         play_sound_effect('control', wait_for_last = False, volume_mult = 1.0, mod = False)
     mirror_sounds()
 
     # post
-    # https://api.autodarts.io/gs/v0/matches/<match-id>/games/next
+    # https://api.autodarts.io/gs/v0/lobbies/<lobby-id>/start
     try:
         global currentMatch
         if currentMatch != None:
-            requests.post(AUTODART_MATCHES_URL + currentMatch + "/games/next", headers={'Authorization': 'Bearer ' + kc.access_token})
+            res = requests.post(AUTODARTS_LOBBIES_URL + lobbyId + "/start", headers={'Authorization': 'Bearer ' + kc.access_token})
+            ppi(res)
 
     except Exception as e:
-        ppe('Next game failed', e)
+        ppe('Start match failed', e)
 
 def next_throw():
     if play_sound_effect('control_next', wait_for_last = False, volume_mult = 1.0, mod = False) == False:
@@ -912,7 +971,7 @@ def next_throw():
     try:
         global currentMatch
         if currentMatch != None:
-            requests.post(AUTODART_MATCHES_URL + currentMatch + "/players/next", headers={'Authorization': 'Bearer ' + kc.access_token})
+            requests.post(AUTODARTS_MATCHES_URL + currentMatch + "/players/next", headers={'Authorization': 'Bearer ' + kc.access_token})
 
     except Exception as e:
         ppe('Next throw failed', e)
@@ -927,7 +986,7 @@ def undo_throw():
     try:
         global currentMatch
         if currentMatch != None:
-            requests.post(AUTODART_MATCHES_URL + currentMatch + "/undo", headers={'Authorization': 'Bearer ' + kc.access_token})
+            requests.post(AUTODARTS_MATCHES_URL + currentMatch + "/undo", headers={'Authorization': 'Bearer ' + kc.access_token})
     except Exception as e:
         ppe('Undo throw failed', e)
 
@@ -976,7 +1035,7 @@ def correct_throw(throw_indices, score):
 
         # ppi(f'Data: {data}')
         if lastCorrectThrow == None or lastCorrectThrow != data:
-            requests.patch(AUTODART_MATCHES_URL + currentMatch + "/throws", json=data, headers={'Authorization': 'Bearer ' + kc.access_token})
+            requests.patch(AUTODARTS_MATCHES_URL + currentMatch + "/throws", json=data, headers={'Authorization': 'Bearer ' + kc.access_token})
             lastCorrectThrow = data
         else:
             lastCorrectThrow = None 
@@ -985,12 +1044,29 @@ def correct_throw(throw_indices, score):
         lastCorrectThrow = None 
         ppe('Correcting throw failed', e)
 
+def next_game():
+    if play_sound_effect('control_next_game', wait_for_last = False, volume_mult = 1.0, mod = False) == False:
+        play_sound_effect('control', wait_for_last = False, volume_mult = 1.0, mod = False)
+    mirror_sounds()
+
+    # post
+    # https://api.autodarts.io/gs/v0/matches/<match-id>/games/next
+    try:
+        global currentMatch
+        if currentMatch != None:
+            requests.post(AUTODARTS_MATCHES_URL + currentMatch + "/games/next", headers={'Authorization': 'Bearer ' + kc.access_token})
+
+    except Exception as e:
+        ppe('Next game failed', e)
+
 def receive_local_board_address():
+    # get
+    # https://api.autodarts.io/bs/v0/boards/<board-id>
     try:
         global boardManagerAddress
 
         if boardManagerAddress == None:
-            res = requests.get(AUTODART_BOARDS_URL + AUTODART_USER_BOARD_ID, headers={'Authorization': 'Bearer ' + kc.access_token})
+            res = requests.get(AUTODARTS_BOARDS_URL + AUTODART_USER_BOARD_ID, headers={'Authorization': 'Bearer ' + kc.access_token})
             board_ip = res.json()['ip']
             if board_ip != None and board_ip != '':  
                 boardManagerAddress = 'http://' + board_ip
@@ -998,52 +1074,16 @@ def receive_local_board_address():
             else:
                 boardManagerAddress = None
                 ppi('Board-address: UNKNOWN') 
+
+            board_event = {
+                "event": "board",
+                "boardOnline": boardManagerAddress != None
+            }
+            broadcast(board_event)
             
     except Exception as e:
         boardManagerAddress = None
         ppe('Fetching local-board-address failed', e)
-
-# deprecated
-def poll_lobbies(ws):
-    def process(*args):
-        global currentMatch
-        global lobbyPlayers
-
-        while currentMatch == None:
-            try:   
-                res = requests.get(AUTODART_LOBBIES_URL, headers={'Authorization': 'Bearer ' + kc.access_token})
-                res = res.json()
-                # ppi(json.dumps(res, indent = 4, sort_keys = True))
-
-                # watchout for a lobby with my board-id
-                for m in res:
-                    for p in m['players']:
-                        if 'boardId' in p and p['boardId'] == AUTODART_USER_BOARD_ID:
-                            ppi('Listen to lobby: ' + m['id'])
-                            paramsSubscribeLobbyEvents = {
-                                    "channel": "autodarts.lobbies",
-                                    "type": "subscribe",
-                                    "topic": m['id'] + ".state"
-                                }
-                            ws.send(json.dumps(paramsSubscribeLobbyEvents))
-                            paramsSubscribeLobbyEvents = {
-                                    "channel": "autodarts.lobbies",
-                                    "type": "subscribe",
-                                    "topic": m['id'] + ".events"
-                                }
-                            ws.send(json.dumps(paramsSubscribeLobbyEvents))
-                            lobbyPlayers = []
-
-                            if play_sound_effect("lobby_ambient_in", False):
-                                mirror_sounds()
-                            return
-            except Exception as e:
-                ppe('Lobby-polling failed: ', e)
-            
-            ppi('Waiting for lobby or match..')
-            time.sleep(5)
-    t = threading.Thread(target=process)
-    t.start()
 
 def listen_to_match(m, ws):
     global currentMatch
@@ -1067,14 +1107,18 @@ def listen_to_match(m, ws):
         currentMatch = m['id']
         ppi('Listen to match: ' + currentMatch)
 
+        reset_checkouts_counter()
 
         try:
             setup_caller()
         except Exception as e:
             ppe("Setup callers failed!", e)
 
+        # fetch-match
+        # get
+        # https://api.autodarts.io/gs/v0/matches/<match-id>
         try:
-            res = requests.get(AUTODART_MATCHES_URL + currentMatch, headers={'Authorization': 'Bearer ' + kc.access_token})
+            res = requests.get(AUTODARTS_MATCHES_URL + currentMatch, headers={'Authorization': 'Bearer ' + kc.access_token})
             m = res.json()
             # ppi(json.dumps(m, indent = 4, sort_keys = True))
 
@@ -1149,7 +1193,7 @@ def listen_to_match(m, ws):
 
             if mode != 'Bull-off':
                 callPlayerNameState = False
-                if CALL_CURRENT_PLAYER and currentPlayerName != None:
+                if CALL_CURRENT_PLAYER >= 1 and currentPlayerName != None:
                     callPlayerNameState = play_sound_effect(currentPlayerName)
 
                 if play_sound_effect('matchon', callPlayerNameState) == False:
@@ -1176,26 +1220,41 @@ def listen_to_match(m, ws):
         }
 
         ws.send(json.dumps(paramsSubscribeMatchesEvents))
+
+        # paramsSubscribeMatchesEvents = {
+        #     "channel": "autodarts.matches",
+        #     "type": "subscribe",
+        #     "topic": currentMatch + ".game-events"
+        # }
+        # ws.send(json.dumps(paramsSubscribeMatchesEvents))
+
         
     elif m['event'] == 'finish' or m['event'] == 'delete':
         ppi('Stop listening to match: ' + m['id'])
 
+        currentMatch = None
         currentMatchHost = None
-        # currentMatchPlayers = None
         currentMatchPlayers = []
 
-        paramsUnsubscribeMatchEvents = {
-            "type": "unsubscribe",
+        paramsUnsubscribeMatchEvents = {  
             "channel": "autodarts.matches",
+            "type": "unsubscribe",
             "topic": m['id'] + ".state"
         }
         ws.send(json.dumps(paramsUnsubscribeMatchEvents))
 
+        # paramsUnsubscribeMatchEvents = {
+        #     "channel": "autodarts.matches",
+        #     "type": "unsubscribe",
+        #     "topic": m['id'] + ".game-events"
+        # }
+        # ws.send(json.dumps(paramsUnsubscribeMatchEvents))
+
         if m['event'] == 'delete':
-            play_sound_effect('matchcancel', mod = False)
+            play_sound_effect('matchcancel')
+            play_sound_effect('ambient_matchcancel', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
             mirror_sounds()
 
-        # poll_lobbies(ws)
 
 def reset_checkouts_counter():
     global checkoutsCounter
@@ -1253,9 +1312,6 @@ def process_match_x01(m):
     matchon = (m['settings'][base] == m['gameScores'][0] and turns['throws'] == [] and m['leg'] == 1 and m['set'] == 1)
     gameon = (m['settings'][base] == m['gameScores'][0] and turns['throws'] == [])
 
-    # ppi('matchon: '+ str(matchon) )
-    # ppi('gameon: '+ str(gameon) )
-    # ppi('isGameFinished: ' + str(isGameFinished))
 
     pcc_success = False
     isGameFin = False
@@ -1296,78 +1352,117 @@ def process_match_x01(m):
         
         if gameon == False and isGameFinished == False:
 
-            # Check for possible checkout
-            if POSSIBLE_CHECKOUT_CALL and \
-                    m['player'] == currentPlayerIndex and \
-                    remainingPlayerScore <= 170 and \
-                    checkout_only_yourself(currentPlayer):
-                
-                if not increase_checkout_counter(currentPlayerIndex, remainingPlayerScore):
-                    if AMBIENT_SOUNDS != 0.0:
-                        play_sound_effect('ambient_checkout_call_limit', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                else:
-                    remaining = str(remainingPlayerScore)
-                    if remainingPlayerScore not in BOGEY_NUMBERS:
-                        if CALL_CURRENT_PLAYER:
-                            play_sound_effect(currentPlayerName)
+            if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
 
-                        if POSSIBLE_CHECKOUT_CALL_SINGLE_FILE:
-                            pcc_success = play_sound_effect('yr_' + remaining, True)
-                            if pcc_success == False:
-                                pcc_success = play_sound_effect(remaining, True)
-                        else:
-                            pcc_success = (play_sound_effect('you_require', True) and play_sound_effect(remaining, True))
-                        
-                        ppi('Checkout possible: ' + remaining)
-                    else:
+                # Check for possible checkout
+                if POSSIBLE_CHECKOUT_CALL and \
+                        m['player'] == currentPlayerIndex and \
+                        remainingPlayerScore <= 170 and \
+                        checkout_only_yourself(currentPlayer):
+                    
+                    if not increase_checkout_counter(currentPlayerIndex, remainingPlayerScore):
                         if AMBIENT_SOUNDS != 0.0:
-                            play_sound_effect('ambient_bogey_number', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                        ppi('bogey-number: ' + remaining)
+                            play_sound_effect('ambient_checkout_call_limit', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    else:
+                        remaining = str(remainingPlayerScore)
+                        if remainingPlayerScore not in BOGEY_NUMBERS:
+                            if CALL_CURRENT_PLAYER >= 1:
+                                play_sound_effect(currentPlayerName)
 
-            if pcc_success == False and CALL_CURRENT_PLAYER and CALL_CURRENT_PLAYER_ALWAYS and numberOfPlayers > 1:
-                play_sound_effect(currentPlayerName)
+                            pcc_success = play_sound_effect('you_require', True)
+                            if pcc_success:
+                                if play_sound_effect('c_' + remaining, True) == False:
+                                    play_sound_effect(remaining, True)
+                            else:
+                                pcc_success = play_sound_effect('yr_' + remaining, True)
+                            
+                            ppi('Checkout possible: ' + remaining)
+                        else:
+                            if AMBIENT_SOUNDS != 0.0:
+                                if play_sound_effect('ambient_bogey_number_' + remaining, AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False) == False:
+                                    play_sound_effect('ambient_bogey_number', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                            ppi('bogey-number: ' + remaining)
+
+                if pcc_success == False and CALL_CURRENT_PLAYER == 2 and numberOfPlayers > 1:
+                    play_sound_effect(currentPlayerName)
 
             # Player-change
             if pcc_success == False and AMBIENT_SOUNDS != 0.0:
-                play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                if play_sound_effect('ambient_playerchange_' + currentPlayerName, AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False) == False:
+                    play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
                 
 
             ppi("Next player")
 
     # Call every thrown dart
-    elif CALL_EVERY_DART == True and turns != None and turns['throws'] != [] and len(turns['throws']) >= 1 and busted == False and matchshot == False and gameshot == False: 
+    elif CALL_EVERY_DART > 0 and turns != None and turns['throws'] != [] and len(turns['throws']) >= 1 and busted == False and matchshot == False and gameshot == False: 
+        
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            throwAmount = len(turns['throws'])
+            type = turns['throws'][throwAmount - 1]['segment']['bed'].lower()
+            field_name = turns['throws'][throwAmount - 1]['segment']['name'].lower()
+            field_multiplier = turns['throws'][throwAmount - 1]['segment']['multiplier']
+            field_number = turns['throws'][throwAmount - 1]['segment']['number']
+            # ppi("Type: " + str(type) + " - Field-name: " + str(field_name))
+            # ppi(turns['throws'][throwAmount - 1]['segment'])
+                
 
-        throwAmount = len(turns['throws'])
-        type = turns['throws'][throwAmount - 1]['segment']['bed'].lower()
-        field_name = turns['throws'][throwAmount - 1]['segment']['name'].lower()
- 
-        if field_name == '25':
-            field_name = 'sbull'
+            # SINGLE-DART-SCORE
+            if CALL_EVERY_DART == 1:
+                score = field_number * field_multiplier
+                play_sound_effect(str(score))
 
-        # ppi("Type: " + str(type) + " - Field-name: " + str(field_name))
+            # SINGLE-DART-NAME
+            elif CALL_EVERY_DART == 2:
+                if field_number == 25 and field_multiplier == 1:
+                    field_name = 'bull'
+                elif field_number == 25 and field_multiplier == 2:
+                    field_name = 'bullseye'
 
-        if CALL_EVERY_DART_SINGLE_FILE == True:
-            if play_sound_effect(field_name) == False:
-                inner_outer = False
-                if type == 'singleouter' or type == 'singleinner':
-                    inner_outer = play_sound_effect(type)
-                    if inner_outer == False:
-                        play_sound_effect('single')
-                else:
-                    play_sound_effect(type)
+                # bull
+                # bullseye 
+                # s1 to t20
+                # m1 to m20
+                if play_sound_effect(field_name) == False:
+                    field_number = str(field_number)
+
+                    if type == 'singleouter' or type == 'singleinner':
+                        play_sound_effect(field_number)
+                    elif type == 'outside':
+                        play_sound_effect(type)
+                    else:
+                        if play_sound_effect(type):
+                            play_sound_effect(field_number, wait_for_last=True)
+
+            # SINGLE-DART-EFFECT
+            elif CALL_EVERY_DART == 3:
+                if field_number == 25 and field_multiplier == 1:
+                    field_name = 'bull'
+                elif field_number == 25 and field_multiplier == 2:
+                    field_name = 'bullseye'
+
+                # effect_bull
+                # effect_bullseye 
+                # effect_s1 to effect_t20
+                # effect_m1 to effect_m20
+                if play_sound_effect('effect_' + field_name, mod = False) == False:
+
+                    # effect_single
+                    # effect_singleouter
+                    # effect_singleinner
+                    inner_outer = False
+                    if type == 'singleouter' or type == 'singleinner':
+                        inner_outer = play_sound_effect('effect_' + type, mod = False)
+                        if inner_outer == False:
+                            play_sound_effect('effect_single', mod = False)
+
+                    # effect_double
+                    # effect_triple 
+                    # effect_outside
+                    else:
+                        play_sound_effect('effect_' + type, mod = False)
             
-
-        elif len(turns['throws']) <= 2:
-            field_number = str(turns['throws'][throwAmount - 1]['segment']['number'])
-
-            if type == 'single' or type == 'singleinner' or type == "singleouter":
-                play_sound_effect(field_number)
-            elif type == 'double' or type == 'triple':
-                play_sound_effect(type)
-                play_sound_effect(field_number, True)
-            else:
-                play_sound_effect('outside')
-            
+        
     # Check for matchshot
     if matchshot == True:
         isGameFin = True
@@ -1385,7 +1480,7 @@ def process_match_x01(m):
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
 
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             play_sound_effect(currentPlayerName, True)
 
         if AMBIENT_SOUNDS != 0.0:
@@ -1399,7 +1494,7 @@ def process_match_x01(m):
                 play_sound_effect('ambient_gameshot', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
             
 
-        if RANDOM_CALLER_EACH_LEG:
+        if RANDOM_CALLER == 2:
             setup_caller()
         ppi('Gameshot and match')
 
@@ -1439,7 +1534,7 @@ def process_match_x01(m):
             else:
                 play_sound_effect('leg_' + str(currentLeg), gameshotState)    
 
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             play_sound_effect(currentPlayerName, True)
 
         if AMBIENT_SOUNDS != 0.0:
@@ -1459,7 +1554,7 @@ def process_match_x01(m):
                 else:
                     play_sound_effect('ambient_gameshot', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
 
-        if RANDOM_CALLER_EACH_LEG:
+        if RANDOM_CALLER == 2:
             setup_caller()
         ppi('Gameshot')
 
@@ -1468,7 +1563,6 @@ def process_match_x01(m):
         isGameFinished = False
 
         reset_checkouts_counter()
-
 
         currentMatchPlayers = []
         currentMatchHost = None
@@ -1484,12 +1578,12 @@ def process_match_x01(m):
             "event": "match-started",
             "id": currentMatch,
             "me": AUTODART_USER_BOARD_ID,
-            "meHost": currentMatchHost,
-            "players": currentMatchPlayers,
+            # "meHost": currentMatchHost,
+            # "players": currentMatchPlayers,
             "player": currentPlayerName,
             "game": {
                 "mode": variant,
-                "pointsStart": str(base),
+                "pointsStart": str(m['settings'][base]),
                 # TODO: fix
                 "special": "TODO"
                 }     
@@ -1497,7 +1591,7 @@ def process_match_x01(m):
         broadcast(matchStarted)
 
         callPlayerNameState = False
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             callPlayerNameState = play_sound_effect(currentPlayerName)
 
         if play_sound_effect('matchon', callPlayerNameState, mod = False) == False:
@@ -1523,7 +1617,7 @@ def process_match_x01(m):
             "player": currentPlayerName,
             "game": {
                 "mode": variant,
-                "pointsStart": str(base),
+                "pointsStart": str(m['settings'][base]),
                 # TODO: fix
                 "special": "TODO"
                 }     
@@ -1531,7 +1625,7 @@ def process_match_x01(m):
         broadcast(gameStarted)
 
         callPlayerNameState = False
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             callPlayerNameState = play_sound_effect(currentPlayerName)
 
         play_sound_effect('gameon', callPlayerNameState, mod = False)
@@ -1557,10 +1651,11 @@ def process_match_x01(m):
                 }
         broadcast(busted)
 
-        play_sound_effect('busted', mod = False)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            play_sound_effect('busted', mod = False)
 
-        if AMBIENT_SOUNDS != 0.0:
-            play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+            if AMBIENT_SOUNDS != 0.0:
+                play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
 
         ppi('Busted')
     
@@ -1589,91 +1684,93 @@ def process_match_x01(m):
         }
         broadcast(dartsThrown)
 
-        play_sound_effect(points)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            if CALL_EVERY_DART == 0 or CALL_EVERY_DART_TOTAL_SCORE == True:
+                play_sound_effect(points, wait_for_last=CALL_EVERY_DART > 0)
 
-        if AMBIENT_SOUNDS != 0.0:
-            ambient_x_success = False
+            if AMBIENT_SOUNDS != 0.0:
+                ambient_x_success = False
 
-            throw_combo = ''
-            for t in turns['throws']:
-                throw_combo += t['segment']['name'].lower()
-            # ppi(throw_combo)
+                throw_combo = ''
+                for t in turns['throws']:
+                    throw_combo += t['segment']['name'].lower()
+                # ppi(throw_combo)
 
-            if turns['points'] != 0:
-                ambient_x_success = play_sound_effect('ambient_' + str(throw_combo), AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                if turns['points'] != 0:
+                    ambient_x_success = play_sound_effect('ambient_' + str(throw_combo), AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    if ambient_x_success == False:
+                        ambient_x_success = play_sound_effect('ambient_' + str(turns['points']), AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+
                 if ambient_x_success == False:
-                    ambient_x_success = play_sound_effect('ambient_' + str(turns['points']), AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    if turns['points'] >= 150:
+                        play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
+                    elif turns['points'] >= 120:
+                        play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif turns['points'] >= 100:
+                        play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif turns['points'] >= 50:
+                        play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif turns['points'] >= 1:
+                        play_sound_effect('ambient_1more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    else:
+                        play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
 
-            if ambient_x_success == False:
-                if turns['points'] >= 150:
-                    play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
-                elif turns['points'] >= 120:
-                    play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif turns['points'] >= 100:
-                    play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif turns['points'] >= 50:
-                    play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif turns['points'] >= 1:
-                    play_sound_effect('ambient_1more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                else:
-                    play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                # Koordinaten der Pfeile
+                coords = []
+                for t in turns['throws']:
+                    if 'coords' in t:
+                        coords.append({"x": t['coords']['x'], "y": t['coords']['y']})
 
-            # Koordinaten der Pfeile
-            coords = []
-            for t in turns['throws']:
-                if 'coords' in t:
-                    coords.append({"x": t['coords']['x'], "y": t['coords']['y']})
+                # ppi(str(coords))
 
-            # ppi(str(coords))
+                # Suche das Koordinatenpaar, das am weitesten von den beiden Anderen entfernt ist
+                if len(coords) == 3:
+                    # Liste mit allen möglichen Kombinationen von Koordinatenpaaren erstellen
+                    combinations = [(coords[0], coords[1]), (coords[0], coords[2]), (coords[1], coords[2])]
 
-            # Suche das Koordinatenpaar, das am weitesten von den beiden Anderen entfernt ist
-            if len(coords) == 3:
-                # Liste mit allen möglichen Kombinationen von Koordinatenpaaren erstellen
-                combinations = [(coords[0], coords[1]), (coords[0], coords[2]), (coords[1], coords[2])]
+                    # Variablen für das ausgewählte Koordinatenpaar und die maximale Gesamtdistanz initialisieren
+                    selected_coord = None
+                    max_total_distance = 0
 
-                # Variablen für das ausgewählte Koordinatenpaar und die maximale Gesamtdistanz initialisieren
-                selected_coord = None
-                max_total_distance = 0
+                    # Gesamtdistanz für jede Kombination von Koordinatenpaaren berechnen
+                    for combination in combinations:
+                        dist1 = math.sqrt((combination[0]["x"] - combination[1]["x"])**2 + (combination[0]["y"] - combination[1]["y"])**2)
+                        dist2 = math.sqrt((combination[1]["x"] - combination[0]["x"])**2 + (combination[1]["y"] - combination[0]["y"])**2)
+                        total_distance = dist1 + dist2
+                        
+                        # Überprüfen, ob die Gesamtdistanz größer als die bisher größte Gesamtdistanz ist
+                        if total_distance > max_total_distance:
+                            max_total_distance = total_distance
+                            selected_coord = combination[0]
 
-                # Gesamtdistanz für jede Kombination von Koordinatenpaaren berechnen
-                for combination in combinations:
-                    dist1 = math.sqrt((combination[0]["x"] - combination[1]["x"])**2 + (combination[0]["y"] - combination[1]["y"])**2)
-                    dist2 = math.sqrt((combination[1]["x"] - combination[0]["x"])**2 + (combination[1]["y"] - combination[0]["y"])**2)
-                    total_distance = dist1 + dist2
-                    
-                    # Überprüfen, ob die Gesamtdistanz größer als die bisher größte Gesamtdistanz ist
-                    if total_distance > max_total_distance:
-                        max_total_distance = total_distance
-                        selected_coord = combination[0]
+                    group_score = 100.0
+                    if selected_coord != None:
+                        
+                        # Distanz von selected_coord zu coord2 berechnen
+                        dist1 = math.sqrt((selected_coord["x"] - coords[1]["x"])**2 + (selected_coord["y"] - coords[1]["y"])**2)
 
-                group_score = 100.0
-                if selected_coord != None:
-                    
-                    # Distanz von selected_coord zu coord2 berechnen
-                    dist1 = math.sqrt((selected_coord["x"] - coords[1]["x"])**2 + (selected_coord["y"] - coords[1]["y"])**2)
+                        # Distanz von selected_coord zu coord3 berechnen
+                        dist2 = math.sqrt((selected_coord["x"] - coords[2]["x"])**2 + (selected_coord["y"] -  coords[2]["y"])**2)
 
-                    # Distanz von selected_coord zu coord3 berechnen
-                    dist2 = math.sqrt((selected_coord["x"] - coords[2]["x"])**2 + (selected_coord["y"] -  coords[2]["y"])**2)
+                        # Durchschnitt der beiden Distanzen berechnen
+                        avg_dist = (dist1 + dist2) / 2
 
-                    # Durchschnitt der beiden Distanzen berechnen
-                    avg_dist = (dist1 + dist2) / 2
+                        group_score = (1.0 - avg_dist) * 100
 
-                    group_score = (1.0 - avg_dist) * 100
+                    # ppi("Distance by max_dis_coord to coord2: " + str(dist1))
+                    # ppi("Distance by max_dis_coord to coord3: " + str(dist2))
+                    # ppi("Group-score: " + str(group_score))
 
-                # ppi("Distance by max_dis_coord to coord2: " + str(dist1))
-                # ppi("Distance by max_dis_coord to coord3: " + str(dist2))
-                # ppi("Group-score: " + str(group_score))
-
-                if group_score >= 98:
-                    play_sound_effect('ambient_group_legendary', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
-                elif group_score >= 95:
-                    play_sound_effect('ambient_group_perfect', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif group_score >= 92:
-                    play_sound_effect('ambient_group_very_nice', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif group_score >= 89:
-                    play_sound_effect('ambient_group_good', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-                elif group_score >= 86:
-                    play_sound_effect('ambient_group_normal', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    if group_score >= 98:
+                        play_sound_effect('ambient_group_legendary', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
+                    elif group_score >= 95:
+                        play_sound_effect('ambient_group_perfect', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif group_score >= 92:
+                        play_sound_effect('ambient_group_very_nice', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif group_score >= 89:
+                        play_sound_effect('ambient_group_good', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                    elif group_score >= 86:
+                        play_sound_effect('ambient_group_normal', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
      
         ppi("Turn ended")
 
@@ -1696,26 +1793,78 @@ def process_match_cricket(m):
     global lastPoints
 
     # Call every thrown dart
-    if CALL_EVERY_DART and turns != None and turns['throws'] != [] and len(turns['throws']) >= 1: 
-        throwAmount = len(turns['throws'])
-        type = turns['throws'][throwAmount - 1]['segment']['bed'].lower()
-        field_name = turns['throws'][throwAmount - 1]['segment']['name'].lower()
-        field_number = turns['throws'][throwAmount - 1]['segment']['number']
+    if CALL_EVERY_DART > 0 and turns != None and turns['throws'] != [] and len(turns['throws']) >= 1: 
 
-        if field_name == '25':
-            field_name = 'sbull'
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+
+            throwAmount = len(turns['throws'])
+            type = turns['throws'][throwAmount - 1]['segment']['bed'].lower()
+            field_name = turns['throws'][throwAmount - 1]['segment']['name'].lower()
+            field_number = turns['throws'][throwAmount - 1]['segment']['number']
+            field_multiplier = turns['throws'][throwAmount - 1]['segment']['multiplier']
+    
+            if field_number not in SUPPORTED_CRICKET_FIELDS:
+                return
             
-        # ppi("Type: " + str(type) + " - Field-name: " + str(field_name))
 
-        # TODO non single file
-        if field_number in SUPPORTED_CRICKET_FIELDS and play_sound_effect(field_name) == False:
-            inner_outer = False
-            if type == 'singleouter' or type == 'singleinner':
-                 inner_outer = play_sound_effect(type)
-                 if inner_outer == False:
-                    play_sound_effect('single')
-            else:
-                play_sound_effect(type)
+            # TODO fields already closed?
+
+
+            # SINGLE-DART-SCORE
+            if CALL_EVERY_DART == 1:
+                score = field_number * field_multiplier
+                play_sound_effect(str(score))
+
+            # SINGLE-DART-NAME
+            elif CALL_EVERY_DART == 2:
+                if field_number == 25 and field_multiplier == 1:
+                    field_name = 'bull'
+                elif field_number == 25 and field_multiplier == 2:
+                    field_name = 'bullseye'
+
+                # bull
+                # bullseye 
+                # s1 to t20
+                # m1 to m20
+                if play_sound_effect(field_name) == False:
+                    field_number = str(field_number)
+
+                    if type == 'singleouter' or type == 'singleinner':
+                        play_sound_effect(field_number)
+                    elif type == 'outside':
+                        play_sound_effect(type)
+                    else:
+                        if play_sound_effect(type):
+                            play_sound_effect(field_number, wait_for_last=True)
+
+            # SINGLE-DART-EFFECT
+            elif CALL_EVERY_DART == 3:
+                if field_number == 25 and field_multiplier == 1:
+                    field_name = 'bull'
+                elif field_number == 25 and field_multiplier == 2:
+                    field_name = 'bullseye'
+
+                # effect_bull
+                # effect_bullseye 
+                # effect_s1 to effect_t20
+                # effect_m1 to effect_m20
+                if play_sound_effect('effect_' + field_name, mod = False) == False:
+
+                    # effect_single
+                    # effect_singleouter
+                    # effect_singleinner
+                    inner_outer = False
+                    if type == 'singleouter' or type == 'singleinner':
+                        inner_outer = play_sound_effect('effect_' + type, mod = False)
+                        if inner_outer == False:
+                            play_sound_effect('effect_single', mod = False)
+
+                    # effect_double
+                    # effect_triple 
+                    # effect_outside
+                    else:
+                        play_sound_effect('effect_' + type, mod = False)
+
 
     # Check for matchshot
     if m['winner'] != -1 and isGameFinished == False:
@@ -1789,7 +1938,7 @@ def process_match_cricket(m):
             else:
                 play_sound_effect('ambient_gameshot', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
         
-        if RANDOM_CALLER_EACH_LEG:
+        if RANDOM_CALLER == 2:
             setup_caller()
         ppi('Gameshot')
     
@@ -1797,7 +1946,7 @@ def process_match_cricket(m):
     elif m['gameScores'][0] == 0 and m['scores'] == None and turns['throws'] == [] and m['round'] == 1 and m['leg'] == 1 and m['set'] == 1:
         isGameOn = True
         isGameFinished = False
-        
+
         matchStarted = {
             "event": "match-started",
             "player": currentPlayerName,
@@ -1864,10 +2013,11 @@ def process_match_cricket(m):
                 }
         broadcast(busted)
 
-        play_sound_effect('busted')
-        if AMBIENT_SOUNDS != 0.0:
-            play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-        ppi('Busted')
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            play_sound_effect('busted')
+            if AMBIENT_SOUNDS != 0.0:
+                play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+            ppi('Busted')
 
     # Check for 1. Dart
     elif turns != None and turns['throws'] != [] and len(turns['throws']) == 1:
@@ -1881,6 +2031,7 @@ def process_match_cricket(m):
     elif turns != None and turns['throws'] != [] and len(turns['throws']) == 3:
         isGameFinished = False
 
+        # TODO fields already closed?
         throwPoints = 0
         lastPoints = ''
         for t in turns['throws']:
@@ -1903,28 +2054,32 @@ def process_match_cricket(m):
         }
         broadcast(dartsThrown)
 
-        play_sound_effect(str(throwPoints))
-        if AMBIENT_SOUNDS != 0.0:
-            if throwPoints == 0:
-                play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif throwPoints == 180:
-                play_sound_effect('ambient_180', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif throwPoints >= 153:
-                play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
-            elif throwPoints >= 120:
-                play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif throwPoints >= 100:
-                play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif throwPoints >= 50:
-                play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            if CALL_EVERY_DART == 0 or CALL_EVERY_DART_TOTAL_SCORE == True:
+                play_sound_effect(str(throwPoints), wait_for_last=CALL_EVERY_DART != 0)
+
+            if AMBIENT_SOUNDS != 0.0:
+                if throwPoints == 0:
+                    play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif throwPoints == 180:
+                    play_sound_effect('ambient_180', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif throwPoints >= 153:
+                    play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
+                elif throwPoints >= 120:
+                    play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif throwPoints >= 100:
+                    play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif throwPoints >= 50:
+                    play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
 
         ppi("Turn ended")
     
+
     # Playerchange
     if isGameOn == False and turns != None and turns['throws'] == [] or isGameFinished == True:
         dartsPulled = {
             "event": "darts-pulled",
-            "player": str(currentPlayer['name']),
+            "player": currentPlayerName,
             "game": {
                 "mode": variant,
                 # TODO: fix
@@ -1943,15 +2098,18 @@ def process_match_cricket(m):
         }
         broadcast(dartsPulled)
 
-        if CALL_CURRENT_PLAYER and CALL_CURRENT_PLAYER_ALWAYS:
-            play_sound_effect(currentPlayerName)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            if CALL_CURRENT_PLAYER == 2:
+                play_sound_effect(currentPlayerName)
 
         if AMBIENT_SOUNDS != 0.0:
-            play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+            if play_sound_effect('ambient_playerchange_' + currentPlayerName, AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False) == False:
+                play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
         
         ppi("Next player")
 
     mirror_sounds()
+
     if isGameFin == True:
         isGameFinished = True
 
@@ -1963,6 +2121,7 @@ def process_match_atc(m):
     currentPlayerIndex = m['player']
     currentPlayer = m['players'][currentPlayerIndex]
     currentPlayerName = str(currentPlayer['name']).lower()
+    currentPlayerIsBot = (m['players'][currentPlayerIndex]['cpuPPR'] is not None)
     numberOfPlayers = len(m['players'])
     isRandomOrder = m['settings']['order'] == 'Random-Bull'
 
@@ -1976,32 +2135,37 @@ def process_match_atc(m):
     if currentTarget['count'] == 0 and int(currentTargetsPlayer) > 0 and turns['throws'] != []:
         currentTarget = m['state']['targets'][currentPlayerIndex][int(currentTargetsPlayer) -1]
 
+
     if turns is not None and turns['throws']:
-        lastThrow = turns['throws'][-1]
-        targetHit = lastThrow['segment']['number']
+        isGameFinished = False
 
-        hit = lastThrow['segment']['bed']
-        target = currentTarget['bed']
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            lastThrow = turns['throws'][-1]
+            targetHit = lastThrow['segment']['number']
 
-        # ppi('hit: ' + hit + ' target: ' + target)
-        is_correct_bed = False
-        if hit != 'Outside' and target == 'Full':
-            is_correct_bed = True
-        elif hit == 'SingleInner' and (target == 'Inner Single' or target == 'Single'):
-            is_correct_bed = True
-        elif hit == 'SingleOuter' and (target == 'Outer Single' or target == 'Single'):
-            is_correct_bed = True
-        elif hit == 'Double' and target == 'Double':
-            is_correct_bed = True
-        elif hit == 'Triple' and target == 'Triple':
-            is_correct_bed = True
+            hit = lastThrow['segment']['bed']
+            target = currentTarget['bed']
 
-        if targetHit == currentTarget['number'] and is_correct_bed:
-            if play_sound_effect('atc_target_hit') == False:
-                play_sound_effect(str(targetHit))
-        else:
-            if play_sound_effect('atc_target_missed') == False:
-                play_sound_effect(str(targetHit))
+            # ppi('hit: ' + hit + ' target: ' + target)
+            is_correct_bed = False
+            if hit != 'Outside' and target == 'Full':
+                is_correct_bed = True
+            elif hit == 'SingleInner' and (target == 'Inner Single' or target == 'Single'):
+                is_correct_bed = True
+            elif hit == 'SingleOuter' and (target == 'Outer Single' or target == 'Single'):
+                is_correct_bed = True
+            elif hit == 'Double' and target == 'Double':
+                is_correct_bed = True
+            elif hit == 'Triple' and target == 'Triple':
+                is_correct_bed = True
+
+            if targetHit == currentTarget['number'] and is_correct_bed:
+                if play_sound_effect('atc_target_hit') == False:
+                    play_sound_effect(str(targetHit))
+            else:
+                if play_sound_effect('atc_target_missed') == False:
+                    play_sound_effect(str(targetHit))
+
 
     if matchshot:
         isGameFinished = True
@@ -2018,7 +2182,7 @@ def process_match_atc(m):
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
 
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             play_sound_effect(currentPlayerName, True)
 
         if AMBIENT_SOUNDS != 0.0:
@@ -2035,15 +2199,22 @@ def process_match_atc(m):
 
     # only call next if more hits then 1
     elif currentTarget['hits'] == needHits and turns['throws'] != [] and (needHits > 1 or isRandomOrder):
-        play_sound_effect('atc_target_next', True)
-        # only call next target number if random order
-        if isRandomOrder:
-            play_sound_effect(str(m['state']['targets'][currentPlayerIndex][int(currentTargetsPlayer)]['number']), True)
+
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            play_sound_effect('atc_target_next', True)
+            # only call next target number if random order
+            if isRandomOrder:
+                play_sound_effect(str(m['state']['targets'][currentPlayerIndex][int(currentTargetsPlayer)]['number']), True)
+
 
     if turns['throws'] == []:
-        play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-        if CALL_CURRENT_PLAYER and CALL_CURRENT_PLAYER_ALWAYS and numberOfPlayers > 1:
-            play_sound_effect(currentPlayerName, True)
+        if AMBIENT_SOUNDS != 0.0:
+            if play_sound_effect('ambient_playerchange_' + currentPlayerName, AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False) == False:
+                play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            if CALL_CURRENT_PLAYER == 2 and numberOfPlayers > 1:
+                play_sound_effect(currentPlayerName, True)
     
     mirror_sounds()
 
@@ -2073,6 +2244,10 @@ def process_match_rtw(m):
 
     gameon = (0 == m['gameScores'][0] and turn['throws'] == [])
     matchover = (winningPlayerIndex != -1 and isGameFinished == False)
+    
+    if turn is not None and turn['throws']:
+        isGameFinished = False
+
 
     # Darts pulled (Playerchange and Possible-checkout)
     if gameon == False and turn != None and turn['throws'] == [] or isGameFinished == True:
@@ -2095,28 +2270,32 @@ def process_match_rtw(m):
         }
         # ppi(dartsPulled)
         broadcast(dartsPulled)
-    elif CALL_EVERY_DART == True and turn is not None and turn['throws'] and not isRandomOrder:
-        lastThrow = turn['throws'][-1]
-        targetHit = lastThrow['segment']['number']
 
-        hit = lastThrow['segment']['bed']
+    elif CALL_EVERY_DART > 0 and turn is not None and turn['throws'] and not isRandomOrder:
 
-        if targetHit == currentTarget:
-            if hit == 'Single' or hit == 'SingleInner' or hit == 'SingleOuter':
-                if play_sound_effect('rtw_target_hit_single',True) == False:
-                    if play_sound_effect(hit,True) == False:
-                        play_sound_effect(str(1),True)
-            elif hit == 'Double':
-                if play_sound_effect('rtw_target_hit_double',True) == False:
-                    if play_sound_effect(hit,True) == False:
-                        play_sound_effect(str(2),True)
-            elif hit == 'Triple':
-                if play_sound_effect('rtw_target_hit_triple',True) == False:
-                    if play_sound_effect(hit,True) == False:
-                        play_sound_effect(str(3),True)
-        else:
-            if play_sound_effect('rtw_target_missed',True) == False:
-                play_sound_effect(str(0),True)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            lastThrow = turn['throws'][-1]
+            targetHit = lastThrow['segment']['number']
+
+            hit = lastThrow['segment']['bed']
+
+            if targetHit == currentTarget:
+                if hit == 'Single' or hit == 'SingleInner' or hit == 'SingleOuter':
+                    if play_sound_effect('rtw_target_hit_single', True, mod = False) == False:
+                        if play_sound_effect(hit, wait_for_last = True, mod = False) == False:
+                            play_sound_effect(str(1), wait_for_last = True, mod = True)
+                elif hit == 'Double':
+                    if play_sound_effect('rtw_target_hit_double', wait_for_last = True, mod = False) == False:
+                        if play_sound_effect(hit, wait_for_last = True, mod = False) == False:
+                            play_sound_effect(str(2), wait_for_last = True, mod = True)
+                elif hit == 'Triple':
+                    if play_sound_effect('rtw_target_hit_triple', wait_for_last = True, mod = False) == False:
+                        if play_sound_effect(hit, wait_for_last = True, mod = False) == False:
+                            play_sound_effect(str(3), wait_for_last = True, mod = True)
+            else:
+                if play_sound_effect('rtw_target_missed', wait_for_last = True, mod = False) == False:
+                    play_sound_effect(str(0), wait_for_last = True, mod = True)
+
 
     # Check for 3. Dart - points call
     if turn != None and turn['throws'] != [] and len(turn['throws']) == 3:
@@ -2133,23 +2312,25 @@ def process_match_rtw(m):
         }
         broadcast(dartsThrown)
 
-        play_sound_effect(str(points),True)
-        if AMBIENT_SOUNDS != 0.0:
-            if int(points) == 0:
-                play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif int(points) == 9:
-                play_sound_effect('ambient_180', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif int(points) >= 7:
-                play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
-            elif int(points) >= 6:
-                play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif int(points) >= 5:
-                play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-            elif int(points) >= 4:
-                play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            play_sound_effect(str(points), True)
+            if AMBIENT_SOUNDS != 0.0:
+                if int(points) == 0:
+                    play_sound_effect('ambient_noscore', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif int(points) == 9:
+                    play_sound_effect('ambient_180', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif int(points) >= 7:
+                    play_sound_effect('ambient_150more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)   
+                elif int(points) >= 6:
+                    play_sound_effect('ambient_120more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif int(points) >= 5:
+                    play_sound_effect('ambient_100more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+                elif int(points) >= 4:
+                    play_sound_effect('ambient_50more', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
 
         ppi("Turn ended")
     
+
     if matchover:
         isGameFinished = True
         matchWon = {
@@ -2165,7 +2346,7 @@ def process_match_rtw(m):
         if play_sound_effect('matchshot') == False:
             play_sound_effect('gameshot')
 
-        if CALL_CURRENT_PLAYER:
+        if CALL_CURRENT_PLAYER >= 1:
             play_sound_effect(winningPlayerName, True)
 
         if AMBIENT_SOUNDS != 0.0:
@@ -2180,6 +2361,7 @@ def process_match_rtw(m):
 
         ppi('Gameshot and match')
         
+
     if m['gameScores'][0] == 0 and m['scores'] == None and turn['throws'] == [] and m['round'] == 1:
         isGameOn = True
         isGameFinished = False
@@ -2206,16 +2388,24 @@ def process_match_rtw(m):
 
     # only call next target number if random order
     if isRandomOrder:
-        play_sound_effect(str(m['state']['targets'][currentPlayerIndex][int(currentTargetsPlayer)]['number']), True)
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            # [int(currentTargetsPlayer)] REMOVE?!
+            play_sound_effect(str(m['state']['targets'][currentPlayerIndex]['number']), True)
+
 
     if turn['throws'] == []:
-        play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
-        if CALL_CURRENT_PLAYER and CALL_CURRENT_PLAYER_ALWAYS and numberOfPlayers > 1:
-            play_sound_effect(currentPlayerName, True)
+        if AMBIENT_SOUNDS != 0.0:
+            if play_sound_effect('ambient_playerchange_' + currentPlayerName, AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False) == False:
+                play_sound_effect('ambient_playerchange', AMBIENT_SOUNDS_AFTER_CALLS, volume_mult = AMBIENT_SOUNDS, mod = False)
+
+        if currentPlayerIsBot == False or CALL_BOT_ACTIONS:
+            if CALL_CURRENT_PLAYER == 2 and numberOfPlayers > 1:
+                play_sound_effect(currentPlayerName, True)
     
     mirror_sounds()
 
 def process_bulling(m):
+    global isBullingFinished
     currentPlayerIndex = m['player']
     currentPlayer = m['players'][currentPlayerIndex]
     currentPlayerName = str(currentPlayer['name']).lower()
@@ -2223,6 +2413,7 @@ def process_bulling(m):
     gameshot = m['gameWinner'] != -1
 
     if gameshot == True:
+        isBullingFinished = True
         bullingEnd = {
             "event": "bulling-end",
             "player": currentPlayerName,
@@ -2235,6 +2426,7 @@ def process_bulling(m):
             play_sound_effect('bulling_end', wait_for_last=True)
     else:
         if m['round'] == 1 and m['gameScores'] is None:  
+            isBullingFinished = False
             bullingStart = {
                 "event": "bulling-start",
                 "player": currentPlayerName,
@@ -2250,23 +2442,88 @@ def process_common(m):
     broadcast(m)
 
 
+
+def mute_audio_background(vol):
+    global background_audios
+    session_fails = 0
+    for session in background_audios:
+        try:
+            volume = session.SimpleAudioVolume
+            if session.Process and session.Process.name() != "darts-caller.exe":
+                volume.SetMasterVolume(vol, None)
+        # Exception as e:
+        except:
+            session_fails += 1
+            # ppe('Failed to mute audio-process', e)
+
+    return session_fails
+
+def unmute_audio_background(mute_vol):
+    global background_audios
+    current_master = mute_vol
+    steps = 0.1
+    wait = 0.1
+    while(current_master < 1.0):
+        time.sleep(wait)          
+        current_master += steps
+        for session in background_audios:
+            try:
+                if session.Process and session.Process.name() != "darts-caller.exe":
+                    volume = session.SimpleAudioVolume
+                    volume.SetMasterVolume(current_master, None)
+            #  Exception as e:
+            except:
+                continue
+                # ppe('Failed to unmute audio-process', e)
+                
+def mute_background(mute_vol):
+    global background_audios
+
+    muted = False
+    waitDefault = 0.1
+    waitForMore = 1.0
+    wait = waitDefault
+
+    while True:
+        time.sleep(wait)
+        if mixer.get_busy() == True and muted == False:
+            muted = True
+            wait = waitForMore
+            session_fails = mute_audio_background(mute_vol)
+
+            if session_fails >= 3:
+                # ppi('refreshing background audio sessions')
+                background_audios = AudioUtilities.GetAllSessions()
+
+        elif mixer.get_busy() == False and muted == True:    
+            muted = False
+            wait = waitDefault
+            unmute_audio_background(mute_vol)  
+
+
+
 def connect_autodarts():
     def process(*args):
         websocket.enableTrace(False)
-        ws = websocket.WebSocketApp(AUTODART_WEBSOCKET_URL,
+        ws = websocket.WebSocketApp(AUTODARTS_WEBSOCKET_URL,
                                     header={'Authorization': 'Bearer ' + kc.access_token},
                                     on_open = on_open_autodarts,
                                     on_message = on_message_autodarts,
                                     on_error = on_error_autodarts,
                                     on_close = on_close_autodarts)
-        
-
-        ws.run_forever()
+        sslOptions = {"cert_reqs": ssl.CERT_NONE}
+        if CERT_CHECK:
+            sslOptions = None
+        ws.run_forever(sslopt=sslOptions)
     threading.Thread(target=process).start()
 
 def on_open_autodarts(ws):
+
+    # fetch-matches
+    # get
+    # https://api.autodarts.io/gs/v0/matches/
     try:
-        res = requests.get(AUTODART_MATCHES_URL, headers={'Authorization': 'Bearer ' + kc.access_token})
+        res = requests.get(AUTODARTS_MATCHES_URL, headers={'Authorization': 'Bearer ' + kc.access_token})
         res = res.json()
         # ppi(json.dumps(res, indent = 4, sort_keys = True))
 
@@ -2290,19 +2547,6 @@ def on_open_autodarts(ws):
 
     
     try:
-        # EXAMPLE:
-        # const unsub = MessageBroker.getInstance().subscribe<{ id: string; event: 'start' | 'finish' | 'delete' }>(
-        # 'autodarts.boards',
-        # id + '.matches',
-
-        # (msg) => {
-        #     if (msg.event === 'start') {
-        #     setMatchId(msg.id);
-        #     } else {
-        #     setMatchId(undefined);
-        #     }
-        # }
-        # );
         paramsSubscribeMatchesEvents = {
             "channel": "autodarts.boards",
             "type": "subscribe",
@@ -2311,7 +2555,6 @@ def on_open_autodarts(ws):
         ws.send(json.dumps(paramsSubscribeMatchesEvents))
 
         ppi('Receiving live information for board-id: ' + AUTODART_USER_BOARD_ID)
-        # poll_lobbies(ws)
 
     except Exception as e:
         ppe('WS-Open-boards failed: ', e)
@@ -2333,16 +2576,19 @@ def on_open_autodarts(ws):
 def on_message_autodarts(ws, message):
     def process(*args):
         try:
-            global lastMessage
+            global currentMatch
             global lobbyPlayers
+            global lastMessage
             m = json.loads(message)
             # ppi(json.dumps(m, indent = 4, sort_keys = True))
   
             if m['channel'] == 'autodarts.matches':
                 data = m['data']
-                # ppi(json.dumps(data, indent = 4, sort_keys = True))
 
-                global currentMatch
+                # ppi(json.dumps(data, indent = 4, sort_keys = True))
+                # if m['topic'].endswith('game-events'):
+                #     ppi(json.dumps(data, indent = 4, sort_keys = True))
+
                 # ppi('Current Match: ' + currentMatch)
                 
                 if('turns' in data and len(data['turns']) >=1):
@@ -2354,7 +2600,7 @@ def on_message_autodarts(ws, message):
 
                     # ppi(json.dumps(data, indent = 4, sort_keys = True))
 
-                    process_common(data)
+                    # process_common(data)
 
                     variant = data['variant']
                     
@@ -2387,6 +2633,7 @@ def on_message_autodarts(ws, message):
                         # ppi("lobby-enter", data)
 
                         lobby_id = data['body']['id']
+                        currentMatch = 'lobby:' + lobby_id
 
                         ppi('Listen to lobby: ' + lobby_id)
                         paramsSubscribeLobbyEvents = {
@@ -2403,13 +2650,14 @@ def on_message_autodarts(ws, message):
                         ws.send(json.dumps(paramsSubscribeLobbyEvents))
                         lobbyPlayers = []
 
-                        if play_sound_effect("lobby_ambient_in", False, mod = False):
+                        if play_sound_effect("ambient_lobby_in", False, mod = False):
                             mirror_sounds()
 
                     elif data['event'] == 'lobby-leave':
                         # ppi("lobby-leave", data)
 
                         lobby_id = data['body']['id']
+                        currentMatch = None
 
                         ppi('Stop Listen to lobby: ' + lobby_id)
                         paramsUnsubscribeLobbyEvents = {
@@ -2426,7 +2674,7 @@ def on_message_autodarts(ws, message):
                         ws.send(json.dumps(paramsUnsubscribeLobbyEvents))
                         lobbyPlayers = []
 
-                        if play_sound_effect("lobby_ambient_out", False, mod = False):
+                        if play_sound_effect("ambient_lobby_out", False, mod = False):
                             mirror_sounds()
 
             elif m['channel'] == 'autodarts.lobbies':
@@ -2451,11 +2699,11 @@ def on_message_autodarts(ws, message):
                             "topic": m['id'] + ".state"
                         }
                         ws.send(json.dumps(paramsUnsubscribeLobbyEvents))
-                        if play_sound_effect("lobby_ambient_out", False, mod = False):
+                        lobbyPlayers = []
+                        # currentMatch = None
+                        if play_sound_effect("ambient_lobby_out", False, mod = False):
                             mirror_sounds()
   
-                        # poll_lobbies(ws)
-
 
                 elif 'players' in data:
                     # did I left the lobby?
@@ -2480,9 +2728,10 @@ def on_message_autodarts(ws, message):
                                 "topic": lobby_id + ".events"
                             }
                         ws.send(json.dumps(paramsUnsubscribeLobbyEvents))
-                        if play_sound_effect("lobby_ambient_out", False, mod = False):
+                        if play_sound_effect("ambient_lobby_out", False, mod = False):
                             mirror_sounds()
                         lobbyPlayers = []
+                        currentMatch = None
                         return
                         
 
@@ -2502,7 +2751,7 @@ def on_message_autodarts(ws, message):
                         player_name = str(lpl['name']).lower()
                         ppi(player_name + " left the lobby")
 
-                        play_sound_effect('lobby_ambient_out', False, mod = False)
+                        play_sound_effect('ambient_lobby_out', False, mod = False)
 
                         if check_sounds([player_name, 'left']):
                             play_sound_effect(player_name, True)
@@ -2528,7 +2777,7 @@ def on_message_autodarts(ws, message):
 
                             ppi(player_name + " (" + player_avg + " average) joined the lobby")
 
-                            play_sound_effect('lobby_ambient_in', False, mod = False)
+                            play_sound_effect('ambient_lobby_in', False, mod = False)
 
                             if check_sounds([player_name, 'average', player_avg]):
                                 play_sound_effect(player_name, True)
@@ -2571,20 +2820,55 @@ def on_error_autodarts(ws, error):
     except Exception as e:
         ppe('WS-Error failed: ', e)
 
+ 
+def start_webserver(host, port, ssl_context=None):
+    if ssl_context is None:
+        socketio.run(app, host=host, port=port, debug=False, allow_unsafe_werkzeug=True)
+    else:
+        socketio.run(app, host=host, port=port, debug=False, allow_unsafe_werkzeug=True, ssl_context=ssl_context)
 
-def on_open_client(client, server):
+def broadcast(data):
+    socketio.emit('message', data)
+
+def unicast(client, data):
+    socketio.emit('message', data, room=client)
+
+
+@socketio.on('connect')
+def handle_connect():
     global webCallerSyncs
-    ppi('NEW CLIENT CONNECTED: ' + str(client))
-    cid = str(client['id'])
+    cid = str(request.sid)
+    ppi('NEW CLIENT CONNECTED: ' + cid)
     if cid not in webCallerSyncs or webCallerSyncs[cid] is None:
         webCallerSyncs[cid] = queue.Queue()
 
-def on_message_client(client, server, message):
-    def process(*args):
-        try:
-            global RANDOM_CALLER_LANGUAGE
-            global RANDOM_CALLER_GENDER
+@socketio.on('disconnect')
+def handle_disconnect():
+    cid = str(request.sid)
+    ppi('CLIENT DISCONNECTED: ' + cid)
+    if cid in webCallerSyncs:
+        webCallerSyncs[cid] = None
+            
+@socketio.on('message')
+def handle_message(message):
+    try:
+        global CALLER
+        global RANDOM_CALLER
+        global RANDOM_CALLER_LANGUAGE
+        global RANDOM_CALLER_GENDER
+        global CALL_EVERY_DART
+        global CALL_CURRENT_PLAYER
+        global CALL_BOT_ACTIONS
+        global POSSIBLE_CHECKOUT_CALL
+        global POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY
+        global isBullingFinished
+        global isGameFinished
+        global caller_profiles_favoured
 
+        cid = str(request.sid)
+
+        if type(message) == str:
+       
             if message.startswith('board'):
                 receive_local_board_address()
 
@@ -2611,272 +2895,146 @@ def on_message_client(client, server, message):
                         calibrate_board()
 
                     else:
-                        ppi('This message is not supported')  
+                        ppi('message', 'This message is not supported')  
+
                 else:
-                    ppi('Can not change board-state as board-address is unknown!')  
+                    ppi('message', 'Can not change board-state as board-address is unknown!')  
 
             elif message.startswith('correct'):
                 msg_splitted = message.split(':')
-                msg_splitted.pop(0)
-                throw_indices = msg_splitted[:-1]
-                score = msg_splitted[len(msg_splitted) - 1]
+                throw_indices = msg_splitted[1:-1]
+                score = msg_splitted[-1]
                 correct_throw(throw_indices, score)
                     
             elif message.startswith('next'):
-                if message.startswith('next-game'):
-                    next_game()
-                else:
-                    next_throw()
+                if currentMatch is not None:
+
+                    if currentMatch.startswith('lobby'):
+                        start_match(currentMatch.split(':')[1])
+                    elif isBullingFinished == True:
+                        isBullingFinished = False
+                        next_game()
+                    elif isGameFinished == False:
+                        next_throw()
+                    else:
+                        next_game()
 
             elif message.startswith('undo'):
                 undo_throw()
 
             elif message.startswith('ban'):
-                msg_splitted = message.split(':')
-                if len(msg_splitted) > 1:
-                    ban_caller(True)
+                CALLER = DEFAULT_CALLER
+                if len(message.split(':')) > 1:
+                    RANDOM_CALLER = 1
+                    ban_caller(only_change=True)
                 else:
                     ban_caller(False)
 
+            elif message.startswith('caller'):
+                messsageSplitted = message.split(':')
+                if len(messsageSplitted) > 1:
+                    RANDOM_CALLER = 0
+                    CALLER = messsageSplitted[1]
+                    setup_caller(hi=True)
+
             elif message.startswith('language'):
-                msg_splitted = message.split(':')
-                if len(msg_splitted) > 1:
-                    RANDOM_CALLER_LANGUAGE = int(msg_splitted[1])
-                    setup_caller()
-                    if play_sound_effect('hi', wait_for_last = False):
-                        mirror_sounds()
+                messsageSplitted = message.split(':')
+                if len(messsageSplitted) > 1:
+                    CALLER = DEFAULT_CALLER
+                    RANDOM_CALLER = 1
+                    RANDOM_CALLER_LANGUAGE = int(messsageSplitted[1])
+                    setup_caller(hi = True)
 
             elif message.startswith('gender'):
-                msg_splitted = message.split(':')
-                if len(msg_splitted) > 1:
-                    RANDOM_CALLER_GENDER = int(msg_splitted[1])
-                    setup_caller()
-                    if play_sound_effect('hi', wait_for_last = False):
-                        mirror_sounds()
+                messsageSplitted = message.split(':')
+                if len(messsageSplitted) > 1:
+                    CALLER = DEFAULT_CALLER
+                    RANDOM_CALLER = 1
+                    RANDOM_CALLER_GENDER = int(messsageSplitted[1])                   
+                    setup_caller(hi = True)
+
+            elif message.startswith('fav'):
+                messsageSplitted = message.split(':')
+                if len(messsageSplitted) > 1:
+                    if messsageSplitted[1] == '0':
+                        favor_caller(unfavor = True)
+                    else:
+                        favor_caller(unfavor = False)
+
+            elif message.startswith('arg'):
+                messsageSplitted = message.split(':')
+                if len(messsageSplitted) == 3:
+                    arg_name = messsageSplitted[1]
+                    arg_value = messsageSplitted[2]
+                    if arg_name == 'e':
+                        CALL_EVERY_DART = int(arg_value)
+                    elif arg_name == 'ccp':
+                        CALL_CURRENT_PLAYER = int(arg_value)
+                    elif arg_name == 'cba':
+                        CALL_BOT_ACTIONS = arg_value == "1"
+                    elif arg_name == 'pcc':
+                        POSSIBLE_CHECKOUT_CALL = int(arg_value)
+                    elif arg_name == 'pccyo':
+                        POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY = arg_value == "1"
 
             elif message.startswith('call'):
-                msg_splitted = message.split(':')
-                to_call = msg_splitted[1]
+                to_call = message.split(':')[1]
                 call_parts = to_call.split(' ')
                 for cp in call_parts:
-                    play_sound_effect(cp, wait_for_last = False, volume_mult = 1.0)
+                    play_sound_effect(cp, wait_for_last=False, volume_mult=1.0)
                 mirror_sounds()
-
-            # elif message.startswith('get'):
-            #     files = []
-            #     for key, value in caller.items():
-            #         for sound_file in value:
-            #             files.append(quote(sound_file, safe=""))
-            #     get_event = {
-            #         "event": "get",
-            #         "caller": caller_title_without_version,
-            #         "specific": CALLER != DEFAULT_CALLER and CALLER != '',
-            #         "banable": BLACKLIST_PATH != DEFAULT_EMPTY_PATH
-            #         "files": files
-            #     }
-            #     unicast(client, get_event)
 
             elif message.startswith('hello'):
                 welcome_event = {
                     "event": "welcome",
-                    "caller": caller_title_without_version,
-                    "specific": CALLER != DEFAULT_CALLER and CALLER != '',
-                    "banable": BLACKLIST_PATH != DEFAULT_EMPTY_PATH
+                    "callersAvailable": callers_available,
+                    "callersFavoured": caller_profiles_favoured,
+                    "caller": caller_title_without_version
                 }
-                unicast(client, welcome_event)
+                unicast(cid, welcome_event)
 
-            elif message.startswith('sync|'): 
-                exists = message[len("sync|"):].split("|")
+        elif type(message) == dict:
+            event = message['event']
 
-                # new = []
-                # count_exists = 0
-                # count_new = 0
-                # caller_copied = caller.copy()
-                # for key, value in caller_copied.items():
-                #     for sound_file in value:
-                #         base_name = os.path.basename(sound_file)
-                #         if base_name not in exists:
-                #             count_new+=1
-                #             # ppi("exists: " + base_name)
+            if event == 'sync' and caller is not None:                    
+                if 'parted' in message:
+                    webCallerSyncs[cid].put(message['exists'])
 
-                #             with open(sound_file, 'rb') as file:
-                #                 encoded_file = (base64.b64encode(file.read())).decode('ascii')
-                #             # print(encoded_file)
-                                
-                #             new.append({"name": base_name, "path": quote(sound_file, safe=""), "file": encoded_file})
-                #         else:
-                #             count_exists+=1
-                #             # ppi("new: " + base_name)   
-                                
-                # ppi(f"Sync {count_new} new files")
-                new = [{"name": os.path.basename(sound_file), "path": quote(sound_file, safe=""), "file": (base64.b64encode(open(sound_file, 'rb').read())).decode('ascii')} for key, value in caller.items() for sound_file in value if os.path.basename(sound_file) not in exists]
-
-                res = {
-                    'caller': caller_title_without_version,
-                    'event': 'sync',
-                    'exists': new
-                }
-                unicast(client, res, dump=True)
-
-            # else try to read json
-            else: 
-                messageJson = json.loads(message)
-
-                # client requests for sync
-                if 'event' in messageJson and messageJson['event'] == 'sync' and caller is not None:                    
-                    if 'parted' in messageJson:
-                        cid = str(client['id'])
-
-                        # ppi("client-id: " + cid)
-                        # ppi("client parted " + str(messageJson['parted']) + " - " + str(messageJson['exists']))   
-                        # ppi("client already cached: " + str(len(webCallerSyncs[cid])))             
+                    partsNeeded = message['parted']
                     
-                        webCallerSyncs[cid].put(messageJson['exists'])
-
-                        partsNeeded = messageJson['parted']
-                        # ppi("Sync chunks. parts needed: " + str(partsNeeded))
-                        
-                        existing = []
-                        if webCallerSyncs[cid].qsize() == partsNeeded:
-                            while partsNeeded > 0:
-                                partsNeeded -= 1
-                                existing += webCallerSyncs[cid].get()
-                            webCallerSyncs[cid].task_done()
-                        else:
-                            return
-                        
-                        new = []
-                        count_exists = 0
-                        count_new = 0
-                        caller_copied = caller.copy()
-                        for key, value in caller_copied.items():
-                            for sound_file in value:
-                                base_name = os.path.basename(sound_file)
-                                if base_name not in existing:
-                                    count_new += 1
-                                    # ppi("new: " + base_name)
-
-                                    with open(sound_file, 'rb') as file:
-                                        encoded_file = (base64.b64encode(file.read())).decode('ascii')
-                                    # print(encoded_file)
-                                        
-                                    new.append({"name": base_name, "path": quote(sound_file, safe=""), "file": encoded_file})
-                                else:
-                                    count_exists+=1
-                                    # ppi("exists: " + base_name)   
-                                        
-                        ppi(f"Sync chunks. {count_new} new files")
-
-                        # new = [{"name": os.path.basename(sound_file), "path": quote(sound_file, safe=""), "file": (base64.b64encode(open(sound_file, 'rb').read())).decode('ascii')} for key, value in caller.items() for sound_file in value if os.path.basename(sound_file) not in webCallerSyncs[cid]]  
-                        messageJson['exists'] = new
-                        unicast(client, messageJson, dump=True)
-                        webCallerSyncs[cid] = queue.Queue()
+                    existing = []
+                    if webCallerSyncs[cid].qsize() == partsNeeded:
+                        while partsNeeded > 0:
+                            partsNeeded -= 1
+                            existing += webCallerSyncs[cid].get()
+                        webCallerSyncs[cid].task_done()
                     else:
-                        # ppi("client already cached: " + str(len(messageJson['exists'])))
-                        new = [{"name": os.path.basename(sound_file), "path": quote(sound_file, safe=""), "file": (base64.b64encode(open(sound_file, 'rb').read())).decode('ascii')} for key, value in caller.items() for sound_file in value if os.path.basename(sound_file) not in messageJson['exists']]
-                        messageJson['exists'] = new
-                        unicast(client, messageJson, dump=True)
+                        return
+                    
+                    new = []
+                    for key, value in caller.items():
+                        for sound_file in value:
+                            base_name = os.path.basename(sound_file)
+                            if base_name not in existing:
+                                with open(sound_file, 'rb') as file:
+                                    encoded_file = (base64.b64encode(file.read())).decode('ascii')
+                                new.append({"name": base_name, "path": quote(sound_file, safe=""), "file": encoded_file})
 
-        except Exception as e:
-            ppe('WS-Client-Message failed.', e)
+                    unicast(cid, {"exists": new})
 
-    t = threading.Thread(target=process).start()
+                else:
+                    new = [{"name": os.path.basename(sound_file), "path": quote(sound_file, safe=""), "file": (base64.b64encode(open(sound_file, 'rb').read())).decode('ascii')} for key, value in caller.items() for sound_file in value if os.path.basename(sound_file) not in message['exists']]
+                    message['exists'] = new
+                    unicast(cid, message)
 
-def on_left_client(client, server):
-    ppi('CLIENT DISCONNECTED: ' + str(client))
-    if client is not None:
-        cid = str(client['id'])
-        if cid in webCallerSyncs:
-            webCallerSyncs[cid] = None
-
-def broadcast(data):
-    def process(*args):
-        global server
-        server.send_message_to_all(json.dumps(data, indent=2).encode('utf-8'))
-    t = threading.Thread(target=process)
-    t.start()
-    # t.join()  
-
-def unicast(client, data, dump=True):
-    def process(*args):
-        global server
-        send_data = data
-        if dump:
-            send_data = json.dumps(send_data, indent=2).encode('utf-8')
-        server.send_message(client, send_data)
-    t = threading.Thread(target=process)
-    t.start()
-    # t.join()
-
-
-
-def mute_audio_background(vol):
-    global background_audios
-    session_fails = 0
-    for session in background_audios:
-        try:
-            volume = session.SimpleAudioVolume
-            if session.Process and session.Process.name() != "autodarts-caller.exe":
-                volume.SetMasterVolume(vol, None)
-        # Exception as e:
-        except:
-            session_fails += 1
-            # ppe('Failed to mute audio-process', e)
-
-    return session_fails
-
-def unmute_audio_background(mute_vol):
-    global background_audios
-    current_master = mute_vol
-    steps = 0.1
-    wait = 0.1
-    while(current_master < 1.0):
-        time.sleep(wait)          
-        current_master += steps
-        for session in background_audios:
-            try:
-                if session.Process and session.Process.name() != "autodarts-caller.exe":
-                    volume = session.SimpleAudioVolume
-                    volume.SetMasterVolume(current_master, None)
-            #  Exception as e:
-            except:
-                continue
-                # ppe('Failed to unmute audio-process', e)
-                
-def mute_background(mute_vol):
-    global background_audios
-
-    muted = False
-    waitDefault = 0.1
-    waitForMore = 1.0
-    wait = waitDefault
-
-    while True:
-        time.sleep(wait)
-        if mixer.get_busy() == True and muted == False:
-            muted = True
-            wait = waitForMore
-            session_fails = mute_audio_background(mute_vol)
-
-            if session_fails >= 3:
-                # ppi('refreshing background audio sessions')
-                background_audios = AudioUtilities.GetAllSessions()
-
-        elif mixer.get_busy() == False and muted == True:    
-            muted = False
-            wait = waitDefault
-            unmute_audio_background(mute_vol)  
-
-
+    except Exception as e:
+        ppe('WS-Client-Message failed.', e)
 
 
 @app.route('/')
 def index():
-    return render_template('index.html', host=DEFAULT_HOST_IP, 
-                                            app_version=VERSION, 
+    return render_template('index.html',    app_version=VERSION, 
                                             db_name=WEB_DB_NAME, 
-                                            ws_port=HOST_PORT, 
-                                            state=WEB, 
                                             id=currentMatch,
                                             me=AUTODART_USER_BOARD_ID,
                                             meHost=currentMatchHost,
@@ -2884,9 +3042,13 @@ def index():
                                             languages=CALLER_LANGUAGES, 
                                             genders=CALLER_GENDERS,
                                             language=RANDOM_CALLER_LANGUAGE,
-                                            gender=RANDOM_CALLER_GENDER
+                                            gender=RANDOM_CALLER_GENDER,
+                                            every_dart=CALL_EVERY_DART,
+                                            call_current_player=CALL_CURRENT_PLAYER,
+                                            call_bot_actions=CALL_BOT_ACTIONS,
+                                            checkout_call=POSSIBLE_CHECKOUT_CALL,
+                                            checkout_call_yourself=POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY
                                             )
-
     
 @app.route('/sounds/<path:file_id>', methods=['GET'])
 def sound(file_id):
@@ -2899,26 +3061,7 @@ def sound(file_id):
     file_name = os.path.basename(file_path)
     return send_from_directory(directory, file_name)
 
-@app.route('/scoreboard')
-def scoreboard():
-    return render_template('scoreboard.html', host=DEFAULT_HOST_IP, ws_port=HOST_PORT, state=WEB_SCOREBOARD)
 
-
-
-
-def start_websocket_server(host, port, key, cert):
-    global server
-    server = WebsocketServer(host=host, port=port, key=key, cert=cert, loglevel=logging.ERROR)
-    server.set_fn_new_client(on_open_client)
-    server.set_fn_client_left(on_left_client)
-    server.set_fn_message_received(on_message_client)
-    server.run_forever()
-
-def start_flask_app(host, port, ssl_context = None):
-    if ssl_context is None:
-        app.run(host=host, port=port, debug=False)
-    else:
-        app.run(ssl_context=ssl_context, host=host, port=port, debug=False)
 
 
 
@@ -2927,35 +3070,30 @@ if __name__ == "__main__":
         
     ap = argparse.ArgumentParser()
     
-    ap.add_argument("-U", "--autodarts_email", required=True, help="Registered email address at " + AUTODART_URL)
-    ap.add_argument("-P", "--autodarts_password", required=True, help="Registered password address at " + AUTODART_URL)
-    ap.add_argument("-B", "--autodarts_board_id", required=True, help="Registered board-id at " + AUTODART_URL)
+    ap.add_argument("-U", "--autodarts_email", required=True, help="Registered email address at " + AUTODARTS_URL)
+    ap.add_argument("-P", "--autodarts_password", required=True, help="Registered password address at " + AUTODARTS_URL)
+    ap.add_argument("-B", "--autodarts_board_id", required=True, help="Registered board-id at " + AUTODARTS_URL)
     ap.add_argument("-M", "--media_path", required=True, help="Absolute path to your media")
     ap.add_argument("-MS", "--media_path_shared", required=False, default=DEFAULT_EMPTY_PATH, help="Absolute path to shared media folder (every caller get sounds)")
     ap.add_argument("-V", "--caller_volume", type=float, default=DEFAULT_CALLER_VOLUME, required=False, help="Sets calling-volume between 0.0 (silent) and 1.0 (max)")
     ap.add_argument("-C", "--caller", default=DEFAULT_CALLER, required=False, help="Sets a specific caller (voice-pack) for calling")
-    ap.add_argument("-R", "--random_caller", type=int, choices=range(0, 2), default=DEFAULT_RANDOM_CALLER, required=False, help="If '1', the application will randomly choose a caller each game. It only works when your base-media-folder has subfolders with its files")
-    ap.add_argument("-L", "--random_caller_each_leg", type=int, choices=range(0, 2), default=DEFAULT_RANDOM_CALLER_EACH_LEG, required=False, help="If '1', the application will randomly choose a caller each leg instead of each game. It only works when 'random_caller=1'")
+    ap.add_argument("-R", "--random_caller", type=int, choices=range(0, 3), default=DEFAULT_RANDOM_CALLER, required=False, help="If '1', the application will randomly choose a caller each game. It only works when your base-media-folder has subfolders with its files")
     ap.add_argument("-RL", "--random_caller_language", type=int, choices=range(0, len(CALLER_LANGUAGES) + 1), default=DEFAULT_RANDOM_CALLER_LANGUAGE, required=False, help="If '0', the application will allow every language.., else it will limit caller selection by specific language")
     ap.add_argument("-RG", "--random_caller_gender", type=int, choices=range(0, len(CALLER_GENDERS) + 1), default=DEFAULT_RANDOM_CALLER_GENDER, required=False, help="If '0', the application will allow every gender.., else it will limit caller selection by specific gender")
-    ap.add_argument("-CCP", "--call_current_player", type=int, choices=range(0, 2), default=DEFAULT_CALL_CURRENT_PLAYER, required=False, help="If '1', the application will call who is the current player to throw")
-    ap.add_argument("-CCPA", "--call_current_player_always", type=int, choices=range(0, 2), default=DEFAULT_CALL_CURRENT_PLAYER_ALWAYS, required=False, help="If '1', the application will call every playerchange")
-    ap.add_argument("-E", "--call_every_dart", type=int, choices=range(0, 2), default=DEFAULT_CALL_EVERY_DART, required=False, help="If '1', the application will call every thrown dart")
-    ap.add_argument("-ESF", "--call_every_dart_single_files", type=int, choices=range(0, 2), default=DEFAULT_CALL_EVERY_DART_SINGLE_FILES, required=False, help="If '1', the application will call a every dart by using single, dou.., else it uses two separated sounds: single + x (score)")
+    ap.add_argument("-CCP", "--call_current_player", type=int, choices=range(0, 3), default=DEFAULT_CALL_CURRENT_PLAYER, required=False, help="If '1', the application will call who is the current player to throw")
+    ap.add_argument("-CBA", "--call_bot_actions", type=int, choices=range(0, 2), default=DEFAULT_CALL_BOT_ACTIONS, required=False, help="If '1', the application will call bot actions")
+    ap.add_argument("-E", "--call_every_dart", type=int, choices=range(0, 4), default=DEFAULT_CALL_EVERY_DART, required=False, help="If '1', the application will call every thrown dart")
+    ap.add_argument("-ETS", "--call_every_dart_total_score", type=int, choices=range(0, 2), default=DEFAULT_CALL_EVERY_DART_TOTAL_SCORE, required=False, help="If '1', the application will call total-score if call-every-dart is active")
     ap.add_argument("-PCC", "--possible_checkout_call", type=int, default=DEFAULT_POSSIBLE_CHECKOUT_CALL, required=False, help="If '1', the application will call a possible checkout starting at 170")
-    ap.add_argument("-PCCSF", "--possible_checkout_call_single_files", type=int, choices=range(0, 2), default=DEFAULT_POSSIBLE_CHECKOUT_CALL_SINGLE_FILES, required=False, help="If '1', the application will call a possible checkout by using yr_2-yr_170, else it uses two separated sounds: you_require + x")
     ap.add_argument("-PCCYO", "--possible_checkout_call_yourself_only", type=int, choices=range(0, 2), default=DEFAULT_POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY, required=False, help="If '1' the caller will only call if there is a checkout possibility if the current player is you")
     ap.add_argument("-A", "--ambient_sounds", type=float, default=DEFAULT_AMBIENT_SOUNDS, required=False, help="If > '0.0' (volume), the application will call a ambient_*-Sounds")
     ap.add_argument("-AAC", "--ambient_sounds_after_calls", type=int, choices=range(0, 2), default=DEFAULT_AMBIENT_SOUNDS_AFTER_CALLS, required=False, help="If '1', the ambient sounds will appear after calling is finished") 
-    ap.add_argument("-DL", "--downloads", type=int, choices=range(0, 2), default=DEFAULT_DOWNLOADS, required=False, help="If '1', the application will try to download a curated list of caller-voices")
-    ap.add_argument("-DLL", "--downloads_limit", type=int, default=DEFAULT_DOWNLOADS_LIMIT, required=False, help="If '1', the application will try to download a only the X newest caller-voices. -DLN needs to be activated.")
+    ap.add_argument("-DL", "--downloads", type=int, choices=range(0, 101), default=DEFAULT_DOWNLOADS, required=False, help="If > '1', the application will download specified number of available voice-packs")
     ap.add_argument("-DLLA", "--downloads_language", type=int, choices=range(0, len(CALLER_LANGUAGES) + 1), default=DEFAULT_DOWNLOADS_LANGUAGE, required=False, help="If '0', the application will download speakers of every language.., else it will limit speaker downloads by specific language")
     ap.add_argument("-DLN", "--downloads_name", default=DEFAULT_DOWNLOADS_NAME, required=False, help="Sets a specific caller (voice-pack) for download")
-    ap.add_argument("-BLP", "--blacklist_path", required=False, default=DEFAULT_EMPTY_PATH, help="Absolute path to storage directory for blacklist-file")
+    ap.add_argument("-ROVP", "--remove_old_voice_packs", type=int, choices=range(0, 2), default=DEFAULT_REMOVE_OLD_VOICE_PACKS, required=False, help="Removes old voice-packs")
     ap.add_argument("-BAV","--background_audio_volume", required=False, type=float, default=DEFAULT_BACKGROUND_AUDIO_VOLUME, help="Set background-audio-volume between 0.1 (silent) and 1.0 (no mute)")
-    ap.add_argument("-WEB", "--web_caller", required=False, type=int, choices=range(0, 3), default=DEFAULT_WEB_CALLER, help="If '1' the application will host an web-endpoint, '2' it will do '1' and default caller-functionality.")
-    ap.add_argument("-WEBSB", "--web_caller_scoreboard", required=False, type=int, choices=range(0, 2), default=DEFAULT_WEB_CALLER_SCOREBOARD, help="If '1' the application will host an web-endpoint, right to web-caller-functionality.")
-    ap.add_argument("-WEBP", "--web_caller_port", required=False, type=int, default=DEFAULT_WEB_CALLER_PORT, help="Web-Caller-Port")
+    ap.add_argument("-LPB", "--local_playback", type=int, choices=range(0, 2), default=DEFAULT_LOCAL_PLAYBACK, required=False, help="If '1' the application will playback audio on your local device.")
     ap.add_argument("-WEBDH", "--web_caller_disable_https", required=False, type=int, choices=range(0, 2), default=DEFAULT_WEB_CALLER_DISABLE_HTTPS, help="If '0', the web caller will use http instead of https. This is unsecure, be careful!")
     ap.add_argument("-HP", "--host_port", required=False, type=int, default=DEFAULT_HOST_PORT, help="Host-Port")
     ap.add_argument("-DEB", "--debug", type=int, choices=range(0, 2), default=DEFAULT_DEBUG, required=False, help="If '1', the application will output additional information")
@@ -2967,8 +3105,15 @@ if __name__ == "__main__":
     
     args = vars(ap.parse_args())
 
+    global CALLER
+    global RANDOM_CALLER
     global RANDOM_CALLER_GENDER
     global RANDOM_CALLER_LANGUAGE
+    global CALL_EVERY_DART
+    global CALL_CURRENT_PLAYER
+    global CALL_BOT_ACTIONS
+    global POSSIBLE_CHECKOUT_CALL
+    global POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY
     
     AUTODART_USER_EMAIL = args['autodarts_email']                          
     AUTODART_USER_PASSWORD = args['autodarts_password']              
@@ -2980,37 +3125,29 @@ if __name__ == "__main__":
         AUDIO_MEDIA_PATH_SHARED = DEFAULT_EMPTY_PATH
     AUDIO_CALLER_VOLUME = args['caller_volume']
     CALLER = args['caller']
-    RANDOM_CALLER = args['random_caller']   
-    RANDOM_CALLER_EACH_LEG = args['random_caller_each_leg']   
+    RANDOM_CALLER = args['random_caller']    
     RANDOM_CALLER_LANGUAGE = args['random_caller_language'] 
     if RANDOM_CALLER_LANGUAGE < 0: RANDOM_CALLER_LANGUAGE = DEFAULT_RANDOM_CALLER_LANGUAGE
     RANDOM_CALLER_GENDER = args['random_caller_gender'] 
     if RANDOM_CALLER_GENDER < 0: RANDOM_CALLER_GENDER = DEFAULT_RANDOM_CALLER_GENDER
     CALL_CURRENT_PLAYER = args['call_current_player']
-    CALL_CURRENT_PLAYER_ALWAYS = args['call_current_player_always']
+    CALL_BOT_ACTIONS = args['call_bot_actions']
     CALL_EVERY_DART = args['call_every_dart']
-    CALL_EVERY_DART_SINGLE_FILE = args['call_every_dart_single_files']
+    CALL_EVERY_DART_TOTAL_SCORE = args['call_every_dart_total_score']
     POSSIBLE_CHECKOUT_CALL = args['possible_checkout_call']
     if POSSIBLE_CHECKOUT_CALL < 0: POSSIBLE_CHECKOUT_CALL = 0
-    POSSIBLE_CHECKOUT_CALL_SINGLE_FILE = args['possible_checkout_call_single_files']
     POSSIBLE_CHECKOUT_CALL_YOURSELF_ONLY = args['possible_checkout_call_yourself_only']
     AMBIENT_SOUNDS = args['ambient_sounds']
     AMBIENT_SOUNDS_AFTER_CALLS = args['ambient_sounds_after_calls']
     DOWNLOADS = args['downloads']
+    if DOWNLOADS < 0: DOWNLOADS = DEFAULT_DOWNLOADS
     DOWNLOADS_LANGUAGE = args['downloads_language']
     if DOWNLOADS_LANGUAGE < 0: DOWNLOADS_LANGUAGE = DEFAULT_DOWNLOADS_LANGUAGE
-    DOWNLOADS_LIMIT = args['downloads_limit']
-    if DOWNLOADS_LIMIT < 0: DOWNLOADS_LIMIT = DEFAULT_DOWNLOADS_LIMIT
     DOWNLOADS_PATH = DEFAULT_DOWNLOADS_PATH
     DOWNLOADS_NAME = args['downloads_name']
-    if args['blacklist_path'] != DEFAULT_EMPTY_PATH:
-        BLACKLIST_PATH = Path(args['blacklist_path'])
-    else:
-        BLACKLIST_PATH = DEFAULT_EMPTY_PATH
+    REMOVE_OLD_VOICE_PACKS = args['remove_old_voice_packs']
     BACKGROUND_AUDIO_VOLUME = args['background_audio_volume']
-    WEB = args['web_caller']
-    WEB_SCOREBOARD = args['web_caller_scoreboard']
-    WEB_PORT = args['web_caller_port']
+    LOCAL_PLAYBACK = args['local_playback']
     WEB_DISABLE_HTTPS = args['web_caller_disable_https']
     HOST_PORT = args['host_port']
     DEBUG = args['debug']
@@ -3019,8 +3156,6 @@ if __name__ == "__main__":
     MIXER_SIZE = args['mixer_size']
     MIXER_CHANNELS = args['mixer_channels']
     MIXER_BUFFERSIZE = args['mixer_buffersize']
-
-
 
 
 
@@ -3034,9 +3169,6 @@ if __name__ == "__main__":
         masked_args = mask(args, data_to_mask)
         ppi(json.dumps(masked_args, indent=4))
     
-    
-    global server
-    server = None
 
     global boardManagerAddress
     boardManagerAddress = None
@@ -3056,6 +3188,18 @@ if __name__ == "__main__":
     global currentMatchHost
     currentMatchHost = None
 
+    global callers_profiles_all
+    callers_profiles_all = []
+
+    global caller_profiles_banned
+    caller_profiles_banned = []
+
+    global caller_profiles_favoured
+    caller_profiles_favoured = []
+
+    global callers_available
+    callers_available = []
+
     global caller
     caller = None
 
@@ -3065,11 +3209,11 @@ if __name__ == "__main__":
     global caller_title_without_version
     caller_title_without_version = ''
 
-    global caller_profiles_banned
-    caller_profiles_banned = []
-
     global lastPoints
     lastPoints = None
+
+    global isBullingFinished
+    isBullingFinished = False
 
     global isGameFinished
     isGameFinished = False
@@ -3096,7 +3240,7 @@ if __name__ == "__main__":
     osRelease = platform.release()
     ppi('\r\n', None, '')
     ppi('##########################################', None, '')
-    ppi('       WELCOME TO AUTODARTS-CALLER', None, '')
+    ppi('       WELCOME TO DARTS-CALLER', None, '')
     ppi('##########################################', None, '')
     ppi('VERSION: ' + VERSION, None, '')
     ppi('RUNNING OS: ' + osType + ' | ' + osName + ' | ' + osRelease, None, '')
@@ -3104,28 +3248,18 @@ if __name__ == "__main__":
     ppi('DONATION: bitcoin:bc1q8dcva098rrrq2uqhv38rj5hayzrqywhudvrmxa', None, '')
     ppi('\r\n', None, '')
 
-    if WEB_DISABLE_HTTPS == False:
-        if CERT_CHECK:
-            ssl._create_default_https_context = ssl.create_default_context
-        else:
-            ssl._create_default_https_context = ssl._create_unverified_context
-            os.environ['PYTHONHTTPSVERIFY'] = '0'
-            ppi("WARNING: SSL-cert-verification disabled!")
+    path_status = check_paths(__file__, AUDIO_MEDIA_PATH, AUDIO_MEDIA_PATH_SHARED)
+    if path_status is not None: 
+        ppi('Please check your arguments: ' + path_status)
+        sys.exit()  
 
-    if WEB == 0 or WEB == 2:
+
+    if LOCAL_PLAYBACK:
         try:
             mixer.pre_init(MIXER_FREQUENCY, MIXER_SIZE, MIXER_CHANNELS, MIXER_BUFFERSIZE)
             mixer.init()
         except Exception as e:
-            WEB = 1
             ppe("Failed to initialize audio device! Make sure the target device is connected and configured as os default. Fallback to web-caller", e)
-            # sys.exit()  
-
-    path_status = check_paths(__file__, AUDIO_MEDIA_PATH, AUDIO_MEDIA_PATH_SHARED, BLACKLIST_PATH)
-    if path_status is not None: 
-        ppi('Please check your arguments: ' + path_status)
-        sys.exit()  
-    
 
     if plat == 'Windows' and BACKGROUND_AUDIO_VOLUME > 0.0:
         try:
@@ -3136,10 +3270,29 @@ if __name__ == "__main__":
             ppe("Background-Muter failed!", e)
 
     try:
-        load_callers_banned(preview = True)
+        load_callers_banned()
+    except Exception as e:
+        ppe("Load banned voice-packs failed!", e)
+
+    try:
+        load_callers_favoured()
+    except Exception as e:
+        ppe("Load favoured voice-packs failed!", e)
+
+    try: 
         download_callers()
     except Exception as e:
-        ppe("Voice-pack fetching failed!", e)
+        ppe("Download voice-packs failed", e)
+
+    try:
+        delete_old_callers()
+    except Exception as e:
+        ppe("Delete old voice-packs failed", e)
+
+    try:
+        load_callers()
+    except Exception as e:
+        ppe("Load voice-packs failed!", e)  
 
     try:
         setup_caller()
@@ -3162,29 +3315,16 @@ if __name__ == "__main__":
             else:
                 ssl_context = make_ssl_devcert(str(AUDIO_MEDIA_PATH / "dummy"), host=DEFAULT_HOST_IP)
 
-        websocket_server_thread = threading.Thread(target=start_websocket_server, args=(DEFAULT_HOST_IP, HOST_PORT, path_to_key, path_to_crt))
-        websocket_server_thread.start()
-
-        if WEB > 0 or WEB_SCOREBOARD:
-            flask_app_thread = threading.Thread(target=start_flask_app, args=(DEFAULT_HOST_IP, WEB_PORT, ssl_context))
-            flask_app_thread.start()
-
         kc = AutodartsKeycloakClient(username=AUTODART_USER_EMAIL, 
-                                     password=AUTODART_USER_PASSWORD, 
-                                     client_id=AUTODART_CLIENT_ID, 
-                                     client_secret=AUTODART_CLIENT_SECRET,
-                                     debug=DEBUG
-                                     )
+                                password=AUTODART_USER_PASSWORD, 
+                                client_id=AUTODARTS_CLIENT_ID, 
+                                client_secret=AUTODARTS_CLIENT_SECRET,
+                                debug=DEBUG)                     
         kc.start()
-
         connect_autodarts()
 
-        websocket_server_thread.join()
-
-        if WEB > 0 or WEB_SCOREBOARD:
-            flask_app_thread.join() 
+        start_webserver(DEFAULT_HOST_IP, HOST_PORT, ssl_context)
 
         kc.stop()
-
     except Exception as e:
         ppe("Connect failed: ", e)

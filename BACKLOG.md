@@ -1,24 +1,32 @@
-- add caller fav mechanismn
-- add board-functions to web-caller
-- rework autodarts-caller code
-- rework custom-event`s data-types without stringfication
-- remove scoreboard
-- add open-lobby command
+- reintroduce murf.ai high-quality voice-packs (without playernames):
+- add voice-pack 'alicia-f-english-us-canada'
+- add voice-pack 'ava-f-english-us-canada'
+- add voice-pack 'charles-m-english-us-canada'
+- add voice-pack 'clint-m-english-us-canada'
+- add voice-pack 'emily-f-english-scottish'
+- add voice-pack 'ethan-m-english-us-canada'
+- add voice-pack 'kushal-m-english-india'
+- add voice-pack 'kylie-f-english-australia'
+- add voice-pack 'mitch-m-english-australia'
+- add voice-pack 'ruby-f-english-uk'
+- add voice-pack 'theo-m-english-uk'
+- add voice-pack 'TODO'
+- add voice-pack 'TODO'
+- add voice-pack 'TODO'
+- add voice-pack 'TODO'
+- add voice-pack 'TODO'
+- add voice-pack 'TODO'
+- improve web-caller compatibility for ios, especially IPhone15 Pro (iOS 17.2.1)
+- remove deleted sounds from web-caller cache
 - add setshot for main-calling
 - stop grabbing every audio file if -M is /home
+- rework code
 - use userID instead of boardID
 - extend score-control to not only correction
 - fix audio device hdmi
 - add BAV for linux and macos
-- improve BAV
+- improve BAV windows
 - check start.sh (sh) media_path_shared if empty
-- stop calls for cricket when field is already closed
-- adjust cricket-processing with x01-processing
 - add support for more game variants
-- improve web-caller compatibility for ios, especially IPhone15 Pro (iOS 17.2.1)
-- improve caller (e.g. randomize speaker speed, pitch, volume etc.)
 - add license
-- clean code (use classes like AutodartsCaller, AutodartsConnection), refactor to best-practice
 - show used audio-device on start
-- improve README: default to customization
-- improve error handling: no net connection on start

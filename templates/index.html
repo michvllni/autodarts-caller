@@ -5,11 +5,14 @@
     <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script type="text/javascript" src="/static/js/common.js?v=1.0.1"></script>
+
     <!-- https://unpkg.com/dexie/dist/dexie.js -->
-    <script type="text/javascript" src="/static/js/dexie-min-3.2.4.js"></script>
+    <script type="text/javascript" src="/static/js/dexie.min-3.2.4.js"></script>
     <!-- https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js -->
     <script type="text/javascript" src="/static/js/peerjs.min-1.5.2.js"></script>
+    <!-- https://cdn.socket.io/4.7.5/socket.io.min.js -->
+    <script type="text/javascript" src="/static/js/socket.io.min-4.7.5.js" crossorigin="anonymous"></script>
+
     <link rel="stylesheet" href="/static/css/common.css?v=1.0.0">
 </head>
 
@@ -22,7 +25,7 @@
     </div>
     <h3 id="status" style="display:none;">Disconnected!</h3>
 
-    <button id="button-start">Start Calling!</button>
+    <button id="button-start">Start!</button>
 
 
     <!-- webrtc -->
@@ -48,13 +51,26 @@
 
     <!-- caller -->
     <div id="caller-container">
+        
         <h2 id="caller-name" style="display:none;"></h2>
+        <image src="" id="button-favorite" style="display:none;"></image>
         <image src="/static/images/say.png" id="button-say" style="display:none;"></image>
         <h2 id="caller-call" style="display:none;"></h2>
 
         <image src="/static/images/loading.gif" style="display:none;" id="loader"></image>
         
+        <div id="select-caller" style="display:none;">
+            <select name="caller" id="caller" tabindex="-1">
+            </select>
+        </div>
+        
         <button id="button-change" style="display:none;">Change caller!</button>
+
+        <!-- match -->
+        <button id="button-next" style="display:none;">Next!</button>
+
+        <!-- board -->
+        <button id="button-calibrate-board" style="display:none;">Calibrate Board!</button>
 
         <div id="select-language" style="display:none;">
             <select name="language" id="language" tabindex="-1">
@@ -75,13 +91,19 @@
         </div>
 
         <button id="button-ban" style="display:none;">Ban caller!</button>
+
+        <!-- board -->
+        <button id="button-reset-board" style="display:none;">Reset Board!</button>
+ 
         
+
 
         <!-- mods -->    
         <image id="button-container-mod-toggle" src="/static/images/mods.png" style="display:none;"></image>
-        <div id="container-mod">   
+        <div id="container-mod">
+            
             <div class="area-mod">
-                <h2>Volume</h2>
+                <h2>Web-Caller Volume</h2>
                 <p>
                     <div id="slider-volume-value" class="mod-value"></div>
                     <input id="slider-volume" class="ranger" type="range" >
@@ -90,7 +112,7 @@
             </div>
 
             <div class="area-mod">
-                <h2>Auto-Randomizer</h2>
+                <h2>Web-Caller Auto-Randomizer</h2>
                 <p>
                     <div id="slider-randomizer-value" class="mod-value"></div>
                     <input id="slider-randomizer" class="ranger" type="range">
@@ -99,7 +121,7 @@
             </div>
 
             <div class="area-mod">
-                <h2>Playback-Rate</h2>
+                <h2>Web-Caller Playback-Rate</h2>
                 <p>
                     <div id="slider-playback-rate-min-value" class="mod-value"></div>
                     <input id="slider-playback-rate-min" class="ranger" type="range">
@@ -110,7 +132,7 @@
             </div>
 
             <div class="area-mod">
-                <h2>Detune</h2>
+                <h2>Web-Caller Detune</h2>
                 <p>
                     <div id="slider-detune-min-value" class="mod-value"></div>
                     <input id="slider-detune-min" class="ranger" type="range">
@@ -119,6 +141,47 @@
                 </p>
                 <button id="button-detune-reset" class="reset">Reset</button>
             </div>
+
+            <hr>
+            
+            <div class="area-mod">
+                <h2>Call every dart</h2>
+                <p>
+                    <div id="slider-every-dart-value" class="mod-value"></div>
+                    <input id="slider-every-dart" class="ranger" type="range" min="0" max="3" step="1" value="{{ every_dart }}">
+                </p>
+            </div>
+
+            <div class="area-mod">
+                <h2>Call current player</h2>
+                <p>
+                    <div id="slider-call-current-player-value" class="mod-value"></div>
+                    <input id="slider-call-current-player" class="ranger" type="range" min="0" max="2" step="1" value="{{ call_current_player }}">
+                </p>
+            </div>
+
+            <div class="area-mod">
+                <h2>Call bot actions</h2>
+                <p>
+                    <input type="checkbox" id="checkbox-call-bot-actions" {% if call_bot_actions %}checked{% endif %}>
+                </p>
+            </div>
+
+            <div class="area-mod">
+                <h2>Call possible checkout</h2>
+                <p>
+                    <div id="slider-possible-checkout-value" class="mod-value"></div>
+                    <input id="slider-possible-checkout" class="ranger" type="range" min="0" max="100" step="1" value="{{ checkout_call }}">
+                </p>
+            </div>
+
+            <div class="area-mod">
+                <h2>Call possible checkout - only Yourself</h2>
+                <p>
+                    <input type="checkbox" id="checkbox-possible-checkout-yourself" {% if checkout_call_yourself %}checked{% endif %}>
+                </p>
+            </div>
+
         </div>
     </div>
 
@@ -128,9 +191,47 @@
         // CONNECTION
         const protocol = window.location.protocol === 'http:' ? 'ws' : 'wss';
         const hostname = window.location.hostname;
+        const port = window.location.port;
 
         // DB
         const localStorageAppKey = 'ADC';
+
+        // misc stuff
+        const audio = document.getElementById('audio');
+        const buttonClear = document.getElementById('app-info'); 
+
+        // webRTC Stuff
+        const webRtcContainer = document.getElementById('web-rtc-container');
+        const webRtcStreamDisplay = document.getElementById('web-rtc-chat-stream-display');
+        const webRtcChat = document.getElementById('web-rtc-chat');
+        const webRtcChatAddInstant = document.getElementById('web-rtc-chat-add-instant');
+        const webRtcChatClearInstants = document.getElementById('web-rtc-chat-clear-instants');
+        const webRtcChatSendMessage = document.getElementById('web-rtc-chat-send-message');
+        const webRtcChatFile = document.getElementById('web-rtc-chat-file');
+        const webRtcChatStream = document.getElementById('web-rtc-chat-stream');
+        const webRtcChatSettingsToggle = document.getElementById('web-rtc-chat-settings-toggle');
+        const webRtcChatSettingsContainer = document.getElementById('web-rtc-chat-settings-container');
+        const webRtcChatSettingsDiscord = document.getElementById('web-rtc-chat-settings-discord');
+        const webRtcChatInstants = document.getElementById('web-rtc-chat-instants');
+        
+        // caller stuff
+        const callerContainer = document.getElementById('caller-container');
+        const button = document.getElementById('button-start');
+        const buttonChange = document.getElementById('button-change');
+        const buttonBan = document.getElementById('button-ban');
+        const buttonFavorite = document.getElementById('button-favorite');
+        const buttonSay = document.getElementById('button-say');
+        const state = document.getElementById('status');
+        const callerName = document.getElementById('caller-name');
+        const lastCall = document.getElementById('caller-call');
+        const loader = document.getElementById('loader');
+        const callerSelect = document.getElementById('select-caller');
+        const languageSelect = document.getElementById('select-language');
+        const genderSelect = document.getElementById('select-gender');
+        const caller = document.getElementById('caller');
+        const language = document.getElementById('language');
+        const gender = document.getElementById('gender');
+        
 
         // playback-rate
         const playbackRateDefault = 1.00;
@@ -160,42 +261,22 @@
         const randomizerMax = 100.00;
         const randomizerStep = 1.00;
 
-        // misc stuff
-        const audio = document.getElementById('audio');
-        const buttonClear = document.getElementById('app-info'); 
-
-        // webRTC Stuff
-        const webRtcContainer = document.getElementById('web-rtc-container');
-        const webRtcStreamDisplay = document.getElementById('web-rtc-chat-stream-display');
-        const webRtcChat = document.getElementById('web-rtc-chat');
-        const webRtcChatAddInstant = document.getElementById('web-rtc-chat-add-instant');
-        const webRtcChatClearInstants = document.getElementById('web-rtc-chat-clear-instants');
-        const webRtcChatSendMessage = document.getElementById('web-rtc-chat-send-message');
-        const webRtcChatFile = document.getElementById('web-rtc-chat-file');
-        const webRtcChatStream = document.getElementById('web-rtc-chat-stream');
-        const webRtcChatSettingsToggle = document.getElementById('web-rtc-chat-settings-toggle');
-        const webRtcChatSettingsContainer = document.getElementById('web-rtc-chat-settings-container');
-        const webRtcChatSettingsDiscord = document.getElementById('web-rtc-chat-settings-discord');
-        const webRtcChatInstants = document.getElementById('web-rtc-chat-instants');
-        
-        // caller stuff
-        const callerContainer = document.getElementById('caller-container');
-        const button = document.getElementById('button-start');
-        const buttonChange = document.getElementById('button-change');
-        const buttonBan = document.getElementById('button-ban');
-        const buttonSay = document.getElementById('button-say');
-        const state = document.getElementById('status');
-        const callerName = document.getElementById('caller-name');
-        const lastCall = document.getElementById('caller-call');
-        const loader = document.getElementById('loader');
-        const languageSelect = document.getElementById('select-language');
-        const genderSelect = document.getElementById('select-gender');
-        const language = document.getElementById('language');
-        const gender = document.getElementById('gender');
-
         // mod stuff
         const buttonContainerModToggle = document.getElementById('button-container-mod-toggle');
         const containerMod = document.getElementById('container-mod');
+
+        const sliderEveryDart = document.getElementById('slider-every-dart');
+        const sliderEveryDartValue = document.getElementById('slider-every-dart-value');
+
+        const sliderCallCurrentPlayer = document.getElementById('slider-call-current-player');
+        const sliderCallCurrentPlayerValue = document.getElementById('slider-call-current-player-value');
+
+        const checkboxCallBotActions = document.getElementById('checkbox-call-bot-actions');
+
+        const sliderPossibleCheckout = document.getElementById('slider-possible-checkout');
+        const sliderPossibleCheckoutValue = document.getElementById('slider-possible-checkout-value');
+
+        const checkboxPossibleCheckoutYourself = document.getElementById('checkbox-possible-checkout-yourself');
 
         const sliderPlaybackRateMin = document.getElementById('slider-playback-rate-min');
         const sliderPlaybackRateMinValue = document.getElementById('slider-playback-rate-min-value');
@@ -216,13 +297,22 @@
         const sliderRandomizer = document.getElementById('slider-randomizer');
         const sliderRandomizerValue = document.getElementById('slider-randomizer-value');
         const buttonRandomizerReset = document.getElementById('button-randomizer-reset');
+    
+        // board stuff
+        const buttonCalibrateBoard = document.getElementById('button-calibrate-board');
+        const buttonResetBoard = document.getElementById('button-reset-board');
+
+        // match stuff
+        const buttonNext = document.getElementById('button-next');
 
 
     
         // VARS
 
         // caller
-        let db, ws, done, loading, caller_name, dexie, specific, banable, playbackRateMin, playbackRateMax, detuneMin, detuneMax, volume, randomizer;
+        let dexie, db, ws, loading, done;
+        let callersAvailable, callersFavoured, name;
+        let playbackRateMin, playbackRateMax, detuneMin, detuneMax, volume, randomizer;
         let audioContext = new (window.AudioContext || window.webkitAudioContext)();
         let audioQueue = Promise.resolve();
         let previousWait = false;
@@ -230,7 +320,7 @@
         // webRtc
         const discordUrl = 'https://discordapp.com/users/';
         let match, me, opponent;
-        let opponentName, oppoenentAvatar;
+        let opponentName, opponentAvatar;
         let peer, connOut, callOut;
         let connEstablished = false;
         let chat = [];
@@ -274,45 +364,47 @@
         document.addEventListener("DOMContentLoaded", function() {
             console.log("APP-Version: '{{ app_version }}'");
 
-            if("{{ state }}" == "0"){
-                showFullscreenOverlay("To use web-calling set -WEB (--web_caller) to 1 or 2");
-            }else{ 
-                if(!checkDBCompatibility){
-                    return;
-                }
-
-                console.log("USING DB: '{{ db_name }}'");
-                initializeDB();
-
-                const urlParams = new URLSearchParams(window.location.search);
-                if (urlParams.has('clear')) {
-                    clearPreferences();
-                } 
-                
-                loadPreferences();
-
-                setTimeout(function() {
-                    const id = JSON.parse('{{ id | tojson | safe}}');
-                    const me = JSON.parse('{{ me | tojson | safe}}');
-                    const meHost = JSON.parse('{{ meHost | tojson | safe}}');
-                    let players = JSON.parse('{{ players | tojson | safe}}');
-                    if(players == false || players == null || players == undefined || players == ''){
-                        players = null;
-                    }
-                    createPeer(id, me, meHost, players);
-                }, 1000);
+            if(!checkDBCompatibility){
+                return;
             }
+
+            console.log("USING DB: '{{ db_name }}'");
+            initializeDB();
+
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('clear')) {
+                clearPreferences();
+            } 
+            
+            loadPreferences();
+
+            setTimeout(function() {
+                const id = JSON.parse('{{ id | tojson | safe}}');
+                const me = JSON.parse('{{ me | tojson | safe}}');
+                const meHost = JSON.parse('{{ meHost | tojson | safe}}');
+                let players = JSON.parse('{{ players | tojson | safe}}');
+                if(players == false || players == null || players == undefined || players == ''){
+                    players = null;
+                }
+                createPeer(id, me, meHost, players);
+            }, 1000);
+            
         });
         buttonClear.addEventListener('click', function() {
             clearPreferences();          
         });
         button.addEventListener('click', function(){
             audio.load();
-            caller_name = undefined;
+            name = undefined;
             state.style.display='block'; 
             lastCall.style.display='block';
             button.remove();
-            setupWebSocketConnection(protocol, hostname, "{{ ws_port }}", onWsOpen, onWsClose, onWsData);
+
+            ws = io.connect(`${protocol}://${hostname}:${port}`);
+            ws.on('connect', onWsOpen);
+            ws.on('disconnect', onWsClose);
+            ws.on('reconnect', onWsReconnect);
+            ws.on('message', onWsData);
         });
         
         // webRtc
@@ -342,6 +434,10 @@
             settingDiscord = this.value;
             updateWebRtcSettings();
         });
+        webRtcChat.addEventListener("click", function() {
+            callerContainer.style.display = 'block';
+            webRtcContainer.classList.remove("fix-bottom");   
+        });
         webRtcChatSendMessage.addEventListener("focus", function() {
             callerContainer.style.display = 'none';
             webRtcContainer.classList.add("fix-bottom");
@@ -349,10 +445,6 @@
         webRtcChatSendMessage.addEventListener("click", function() {
             callerContainer.style.display = 'none';
             webRtcContainer.classList.add("fix-bottom");
-        });
-        webRtcChat.addEventListener("click", function() {
-            callerContainer.style.display = 'block';
-            webRtcContainer.classList.remove("fix-bottom");   
         });
         webRtcChatSendMessage.addEventListener("keydown", function(event) {  
             if (event.keyCode === 13) {
@@ -399,27 +491,121 @@
 
         // caller
         buttonChange.addEventListener('click', function() {
-            ws.send('ban:change');            
+            ws.emit('message', 'ban:change');            
         });
         buttonBan.addEventListener('click', function() {
-            ws.send('ban');            
+            ws.emit('message', 'ban');            
         });
         buttonSay.addEventListener('click', function() {
-            ws.send('call:hi');            
+            ws.emit('message', 'call:hi');            
+        });
+        caller.addEventListener('change', function() {
+            ws.emit('message', `caller:${caller.value}`);
         });
         language.addEventListener('change', function() {
-            ws.send(`language:${language.value}`);
+            ws.emit('message', `language:${language.value}`);
         });
         gender.addEventListener('change', function() {
-            ws.send(`gender:${gender.value}`);
+            ws.emit('message', `gender:${gender.value}`);
         });
-        
+        buttonFavorite.addEventListener('click', function() {
+            if(callersFavoured.includes(name)){
+                ws.emit('message', 'fav:0');
+                callersFavoured = callersFavoured.filter(item => item !== name);
+                buttonFavorite.src = "/static/images/star-no.png";
+                renderAvailableCallers();
+                
+            }else{
+                ws.emit('message', 'fav:1');
+                callersFavoured.push(name);
+                buttonFavorite.src = "/static/images/star.png";
+                renderAvailableCallers();
+            }
+        });
+        function renderAvailableCallers(){
+            caller.innerHTML = "";
+            callersAvailable.forEach(function(ca) {
+                if (callersFavoured.includes(ca)) {
+                    const callerElement = document.createElement("option");
+                    callerElement.textContent = ca;
+                    callerElement.value = ca;
+                    callerElement.classList.add("favorite");
+                    if (ca.toLowerCase() == name) {
+                        callerElement.selected = true;
+                    }
+                    caller.appendChild(callerElement);
+                }
+            });
+            callersAvailable.forEach(function(ca) {
+                if (!callersFavoured.includes(ca)) {
+                    const callerElement = document.createElement("option");
+                    callerElement.textContent = ca;
+                    callerElement.value = ca;
+                    if (ca.toLowerCase() == name) {
+                        callerElement.selected = true;
+                    }
+                    caller.appendChild(callerElement);
+                }
+            });
+        }
+
         // mods
         buttonContainerModToggle.addEventListener('click', function(){
             if(containerMod.style.display == 'block'){
                 containerMod.style.display = 'none';
             }else{
                 containerMod.style.display = 'block';
+                containerMod.scrollIntoView({ behavior: 'smooth' });
+                // containerMod.scrollTop = containerMod.scrollHeight;   
+            }
+        });
+        sliderEveryDart.addEventListener('input', function(){
+            switch(this.value) {
+                case "0":
+                    sliderEveryDartValue.innerHTML = this.value + " = inactive";
+                    break;
+                case "1":
+                    sliderEveryDartValue.innerHTML = this.value + " = active (SINGLE-DART-SCORE)";
+                    break;
+                case "2":
+                    sliderEveryDartValue.innerHTML = this.value + " = active (SINGLE-DART-NAME)";
+                    break;
+                case "3":
+                    sliderEveryDartValue.innerHTML = this.value + " = active (SINGLE-DART-EFFECT)";
+                    break;
+            }
+            ws.emit('message', `arg:e:${this.value}`);
+        });
+        sliderCallCurrentPlayer.addEventListener('input', function() {
+            switch(this.value) {
+                case "0":
+                    sliderCallCurrentPlayerValue.innerHTML = this.value + " = inactive";
+                    break;
+                case "1":
+                    sliderCallCurrentPlayerValue.innerHTML = this.value + " = active";
+                    break;
+                case "2":
+                    sliderCallCurrentPlayerValue.innerHTML = this.value + " = active (every turn)";
+                    break;
+            }
+            ws.emit('message', `arg:ccp:${this.value}`);
+        });
+        checkboxCallBotActions.addEventListener('change', function() {
+            if (this.checked) {
+                ws.emit('message', `arg:cba:1`);
+            } else {
+                ws.emit('message', `arg:cba:0`);
+            }
+        });
+        sliderPossibleCheckout.addEventListener('input', function() {
+            sliderPossibleCheckoutValue.innerHTML = this.value + " times";
+            ws.emit('message', `arg:pcc:${this.value}`);
+        });
+        checkboxPossibleCheckoutYourself.addEventListener('change', function() {
+            if (this.checked) {
+                ws.emit('message', `arg:pccyo:1`);
+            } else {
+                ws.emit('message', `arg:pccyo:0`);
             }
         });
         sliderPlaybackRateMin.addEventListener('input', function() {
@@ -480,7 +666,19 @@
             randomizer = randomizerDefault;
             updateRandomizerSlider();
         });
-        
+
+        // board
+        buttonCalibrateBoard.addEventListener('click', function(){
+            ws.emit('message', 'board-calibrate');
+        });
+        buttonResetBoard.addEventListener('click', function(){
+            ws.emit('message', 'board-reset');
+        });
+
+        // match
+        buttonNext.addEventListener('click', function(){
+            ws.emit('message', 'next');
+        });
 
         function updateWebRtcSettings(save = true){
             webRtcChatSettingsDiscord.value = settingDiscord;
@@ -603,7 +801,7 @@
                             callerName.innerText = "Database cleared. Sync.."
                             initializeDB();
                             if(ws){
-                                ws.send('hello');
+                                ws.emit('message', 'hello');
                             }
                         }).catch(error => {
                             console.error('Failed to clear database', error);
@@ -631,11 +829,9 @@
                 updateDetuneSliders(false);
             }      
         }
-
         function wait(ms) {
             return new Promise(resolve => setTimeout(resolve, ms));
-        }
-        
+        } 
         function checkDBCompatibility () {
             if (!('indexedDB' in window)) {
                 console.log("This browser doesn't support IndexedDB");
@@ -645,7 +841,6 @@
             dexie = True;
             return true;
         }
-
         function initializeDB(){
             db = new Dexie("{{ db_name }}");
             db.version(1).stores({
@@ -655,7 +850,6 @@
                     file`,
             });
         }
-
         function base64ToArrayBuffer(base64) {
             const binaryString = window.atob(base64);
             const bytes = new Uint8Array(binaryString.length);
@@ -663,16 +857,7 @@
                 bytes[i] = binaryString.charCodeAt(i);
             }
             return bytes.buffer;
-        }
-        
-        // async function decodeAndCacheSound(caller, new_file) {
-        //     const arrayBuffer = base64ToArrayBuffer(new_file.file);
-        //     await db.sounds.put({ caller: caller, name: new_file.name, path: new_file.path, file: arrayBuffer });
-        //     done += 1;
-        //     callerName.innerText = `${caller_name} [Syncing .. ${done}]`;
-        //     console.log(`Caching successful for ${new_file.name} -> ${new_file.path}`);
-        // }
-        
+        }    
         async function downloadAndCacheSound(caller, file) {
             if(!loading){
                 return;
@@ -711,7 +896,6 @@
                 console.error(`Error processing ${file}: ${error}`);
             }
         }
-
         function processAudioEvent(audioEvent) {
             return new Promise((resolve, reject) => {
                 let path = audioEvent.path;
@@ -765,14 +949,12 @@
                 });
             });
         }
-
         function generateRandomOffset(baseValue, offsetMin, offsetMax) {
             const randomOffset = (Math.random() * 0.1) - 0.05;
             const clampedOffset = Math.max(Math.min(randomOffset, offsetMax), offsetMin);
             const finalValue = parseFloat(baseValue + clampedOffset);
             return finalValue;
         }
-
         function playAudio(audioBlob, audioEvent, fromCache) {
             return new Promise((resolve, reject) => {
                 audioContext.decodeAudioData(audioBlob)
@@ -831,7 +1013,6 @@
                     });
             });
         }
-
         function cacheAudio(audioEvent, audioBuffer) {
             const copiedAudioBuffer = audioBuffer.slice(0);
             db.open().then(() => {
@@ -844,7 +1025,6 @@
                     });
             });
         }
-
         function getAudio(audioEvent) {
             return db.open()
                 .then(() => db.sounds.get({caller: audioEvent.caller, name: audioEvent.name}))
@@ -862,49 +1042,50 @@
                     return null;
                 });
         }
-
         function extractFilename(path) {
             let separator = path.includes('/') ? '/' : '\\';
             let parts = path.split(separator);
             return parts[parts.length - 1];
         }
-
         function setLoading(state){
             loading = state
             if(!loading){
                 loader.style.display = 'none';
+
                 lastCall.style.display = 'block';
                 lastCall.innerText = 'Waiting for throws ..';
-                if(!specific && banable){
-                    buttonBan.style.display = 'block';
-                }
-                if(!specific){
-                    buttonChange.style.display = 'block';
-                    languageSelect.style.display = 'block';
-                    genderSelect.style.display = 'block';
-                }
                 buttonSay.style.display = 'inline';
-                buttonContainerModToggle.style.display = 'inline';
+                buttonFavorite.style.display = 'inline';
+                buttonChange.style.display = 'block';
+                callerSelect.style.display = 'block';
+                languageSelect.style.display = 'block';
+                genderSelect.style.display = 'block';
+                buttonBan.style.display = 'block';
+                buttonContainerModToggle.style.display = 'inline';   
+                        
+                buttonCalibrateBoard.style.display = 'block';
+                buttonResetBoard.style.display = 'block';   
+                
+                buttonNext.style.display = 'block'; 
             }
             else{
                 loader.style.display = 'block';
-                buttonBan.style.display = 'none';
+
+                buttonSay.style.display = 'none';
+                buttonFavorite.style.display = 'none';
                 buttonChange.style.display = 'none';
+                callerSelect.style.display = 'none';
                 languageSelect.style.display = 'none';
                 genderSelect.style.display = 'none';
-                buttonSay.style.display = 'none';
+                buttonBan.style.display = 'none';
                 buttonContainerModToggle.style.display = 'none';
+
+                buttonCalibrateBoard.style.display = 'none';
+                buttonResetBoard.style.display = 'none';   
+
+                buttonNext.style.display = 'none'; 
             }
         }
-
-        function splitArrayIntoChunks(array, chunkSize) {
-            const chunks = [];
-            for (let i = 0; i < array.length; i += chunkSize) {
-                chunks.push(array.slice(i, i + chunkSize));
-            }
-            return chunks;
-        }
-
 
         
         async function getStreamConstraints(videoinputRequested = false, audioinputRequested = false){
@@ -933,7 +1114,6 @@
                     });
             }
         }
-
         function checkStreamOptions(stream){
             let video = false;
             let audio = false; 
@@ -941,7 +1121,6 @@
             if(stream.getVideoTracks().length) video = true;
             return {metadata: {"video": video, "audio": audio}};
         }
-
         function startStream(stream, call) {
             callOut = call;
             const streamOptions = checkStreamOptions(stream);
@@ -954,13 +1133,11 @@
                 webRtcStreamDisplay.play()
             });
         }
-
         function endStream(){
             callOut = null;
             webRtcContainer.style.display = 'block';
             webRtcStreamDisplay.style.display = 'none';     
         }
-
         async function callOpponent(){
             var opponentPeerId = match + "-" + opponent;
 
@@ -988,7 +1165,6 @@
                 console.log('Failed to get local stream', err);
             });
         }
-
         function answerCallOpponent(){
             peer.on('call', async function(call) {
                 let audioRequested = false;
@@ -1025,7 +1201,6 @@
                     });
             });
         }
-  
         function createPeer(matchId, meId, meHost, players){
             if(matchId === null || meId === null || players === null) return;
 
@@ -1042,7 +1217,7 @@
             me = meId;
             opponent = players[0]['boardId'];
             opponentName = players[0]['name'];
-            oppoenentAvatar = players[0]['avatarUrl'];
+            opponentAvatar = players[0]['avatarUrl'];
 
             console.log('Opponent-ID: ' + opponent);
 
@@ -1107,7 +1282,6 @@
             //     console.log(err);
             // });  
         }
-        
         function connectOpponent(once){
             if(connEstablished) return;
 
@@ -1153,8 +1327,7 @@
                     }, 2000);
                 }
             });  
-    }
-                   
+    }               
         function sendDiscord(){
             if(settingDiscord != ''){
                 let dc = discordUrl + settingDiscord;
@@ -1164,14 +1337,12 @@
                 }
             }
         }
-
         function currentTime() {
             let date = new Date();
             let hours = ('0' + date.getHours()).slice(-2);
             let minutes = ('0' + date.getMinutes()).slice(-2);
             return `${hours}:${minutes}`;
         }
-
         const encode = input => {
             const keyStr =
                 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
@@ -1202,7 +1373,6 @@
             }
             return output
             }
-
         function isURL(str) {
             var urlPattern = new RegExp('^(https?:\\/\\/)?'+ // protocol
             '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.)+[a-z]{2,}|'+ // domain name
@@ -1212,14 +1382,12 @@
             '(\\#[-a-z\\d_]*)?$','i'); // fragment locator
             return urlPattern.test(str);
         }
-
         function clearWebRtcChat(){
             chatOffline = [];
             chat = [];
             webRtcChat.innerHTML = "";
             renderWebRtcChat();
         }
-
         function addWebRtcChat(message, type){
             let msgObject = {
                 text: message,
@@ -1230,7 +1398,6 @@
             chat.push(msgObject);
             renderWebRtcChat();
         }
-
         function renderWebRtcChat(){
             chat.forEach(function(cm) {
                 if(document.getElementById(cm.timestamp)) return;
@@ -1240,10 +1407,10 @@
                 
                 // MSG IN
                 if(cm.type === 1){
-                    if(oppoenentAvatar){
+                    if(opponentAvatar){
                         const avatar = document.createElement("img");
                         avatar.classList.add("web-rtc-chat-message-avatar");
-                        avatar.src = oppoenentAvatar;
+                        avatar.src = opponentAvatar;
                         message.appendChild(avatar);
                     }
                     if(typeof(cm.text) === "string"){
@@ -1311,21 +1478,20 @@
         }
 
 
-        function onWsOpen(wss){
-            ws = wss;
-
+        function onWsOpen(){
             state.innerText = "CONNECTED!";
             state.classList = "success";
-
-            ws.send('hello');
-        }
-        
-        function onWsClose(ws){
+            ws.emit('message', 'hello');
+        }    
+        function onWsClose(){
             state.innerText = "DISCONNECTED!";
             state.classList = "failure";
         }
-
-        async function onWsData(ws, data){
+        function onWsReconnect(){
+            state.innerText = "RECONNECTING!";
+            state.classList = "success";
+        }
+        async function onWsData(data){
             if(data.event === 'mirror'){
                 previousWait = true;
 
@@ -1357,40 +1523,33 @@
                 console.log('welcome by server');
 
                 done = 0;
-                caller_name = data.caller;
-                specific = data.specific;
-                banable = data.banable;
-
+                callersAvailable = data.callersAvailable;
+                callersFavoured = data.callersFavoured;
+                name = data.caller;
+                
                 randomize();
 
+
+                renderAvailableCallers();
+
+                
                 callerName.style.display = 'block';
-
                 const exists_db_entries = await db.sounds.where('caller').equals(data.caller).toArray();
-                // const exists_db_entries = await db.sounds.where('caller').equals(data.caller).primaryKeys();
-                // db.sounds.where('caller').equals(data.caller).primaryKeys().then((exists_db_entries) => {
-                    // const exists = exists_db_entries.map(entry => entry[1]);
-                    const exists = exists_db_entries.map(entry => entry['name']);
-                    console.log(`${exists.length} cached files for ${data.caller}`);
-                    callerName.innerText = `${caller_name} [${exists.length} sounds]`;
+                const exists = exists_db_entries.map(entry => entry['name']);
+                console.log(`${exists.length} cached files for ${data.caller}`);
+                callerName.innerHTML = `${name} [${exists.length} sounds]`;
 
-                    data['event'] = 'sync';
-                    if(exists.length > 2000){
-                        const chunks = splitArrayIntoChunks(exists, 2000);
-                        chunks.forEach((chunk, index) => {
-                            setLoading(true);
-                            data['exists'] = chunk;
-                            data['part'] = index;
-                            data['parted'] = chunks.length;
-                            ws.send(JSON.stringify(data));            
-                        });
-                    }else{
-                        setLoading(true);
-                        data['exists'] = exists;
-                        ws.send(JSON.stringify(data));
-                    }
-                    
-                // });
-            
+
+                if(callersFavoured.includes(name)){
+                    buttonFavorite.src =  "/static/images/star.png";
+                }else{
+                    buttonFavorite.src =  "/static/images/star-no.png";
+                }
+
+                setLoading(true);
+                data['event'] = 'sync';
+                data['exists'] = exists;
+                ws.emit('message', data);
             }
 
             else if(data.event === 'sync'){
@@ -1401,16 +1560,13 @@
                 const new_files = data.exists.map(new_file => {
                         let arrayBuffer = base64ToArrayBuffer(new_file.file);
                         done += 1;
-                        callerName.innerText = `${caller_name} [${done} sounds extracted]`;
-                        console.log(`decode successful for ${new_file.name} -> ${new_file.path}`);
+                        callerName.innerText = `${name} [${done} sounds extracted]`;
+                        // console.log(`decode successful for ${new_file.name} -> ${new_file.path}`);
                         return { caller: data.caller, name: new_file.name, path: new_file.path, file: arrayBuffer };
                     });
 
-                // await db.sounds.bulkPut(new_files);
-                // setLoading(false);
-                    
                 db.sounds.bulkPut(new_files).then(function(last_file) {
-                    callerName.innerText = `${caller_name} [${done} sounds synced]`;
+                    callerName.innerText = `${name} [${done} sounds synced]`;
                     console.log("last sounds's id was: " + last_file);
                 }).catch(Dexie.BulkError, function (e) {
                     console.error("some sounds did not succeed: " + e.failures.length + " failed");
@@ -1426,31 +1582,6 @@
                 }
             }
             
-            /*
-            else if(data.event === 'get') {
-                console.log(data.caller + " - " + data.files.length + " files");
-
-                callerName.innerText = data.caller
-                callerName.style.display = 'block'; 
-                // setLoading(false);
-
-                done = 0;
-                lastCall.innerText = done;
-                var limit = data.files.length
-
-                db.open()
-                    .then(async () => {
-                        setLoading(true);
-                        await Promise.all(data.files.slice(0, limit).map(file => downloadAndCacheSound(data.caller, file)));
-                        setLoading(false);
-                    })
-                    .catch(error => {
-                        console.error(`Database error: ${error}`);
-                    });
-            }
-            */
-
-
             else{
                 console.log("Unknown message");
             }

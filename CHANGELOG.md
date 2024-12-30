@@ -1,3 +1,98 @@
+## 2.14.0
+
+- add argument -ROVP --remove_old_voice_packs (default '0')
+- add argument -CBA --call_bot_actions (default '1')
+- extend argument -E (The former E = 2 is now E = 3. The "new E = 2" calls a single dart by its field-name / category "SINGLE-DART-NAME")
+- rename sound-file-keys of category "SINGLE-DART-EFFECT": add prefix "effects_" to every sound-file-key. Examples: 't20' is now 'effect_t20', 'single' is now 'effect_single' (You need to rename your files accordingly)
+- rename sound-file-key 'sbull' to 'effect_bull' (You need to rename your file accordingly)
+- rename sound-file-key 'bull' to 'effect_bullseye' (You need to rename your file accordingly)
+- add sound-file-key 'ambient_matchcancel'
+- fix bug where checkout-counter wasn't reset properly
+- update all existing amazon/aws voice-packs (containing sounds for "E = 2")
+- rearrange preference-buttons on web-caller
+- adjust README to changes
+
+
+## 2.13.0
+
+- rename application to darts-caller
+- fix gender selection when selected language is not 'every language'
+
+
+## 2.12.5
+
+- simplify README (argument section)
+- remove argument -DLL (it is now covered by -DL)
+- remove argument -PCCSF (from now it will automatically fallback to "single-files" when sound-file-key 'you_require' is not available)
+- add sound-file-keys for particular checkout-numbers: 'c_2-c_170'
+- add sound-file-keys for particular bogey-numbers: 'ambient_bogey_number_{bogey_number}'
+
+
+## 2.12.4
+
+- change sound-file-key 'lobby_ambient_in' to 'ambient_lobby_in'
+- change sound-file-key 'lobby_ambient_out' to 'ambient_lobby_out'
+- remove argument -BLP
+- add caller fav mechanismn
+- fix bug for option -C
+- reposition inputs on web-caller (for better practical use)
+
+
+## 2.12.3
+
+- improve change-caller speed
+- fix bug for change-caller
+- improve "magic-next-button" for bulling
+
+
+## 2.12.2
+
+- fix sound-file-keys sbull, bull
+
+
+## 2.12.1
+
+- fix bug on caller-setup
+- add argument -ETS (call_every_dart_total_score)
+
+
+## 2.12.0
+
+- add direct voice-pack selection to web-caller
+- add "magic next button" to web-caller
+- add option -E to web-caller
+- add option -CCP to web-caller
+- add option -PCC to web-caller
+- add option -PCCYO to web-caller
+- add voice-pack 'en-GB-Amy-Female'
+- add voice-pack 'en-GB-Arthur-Male'
+- add voice-pack 'es-ES-Lucia-Female'
+- add voice-pack 'es-ES-Sergio-Male'
+- add voice-pack 'fr-FR-Remi-Male'
+- add voice-pack 'fr-FR-Lea-Female'
+- update all existing amazon/aws voice-packs
+- remove all google-cloud-tts voice-packs (*-wavenet-*)
+- remove web-scoreboard
+- remove arguments -WEB, -WEBSB, -WEBP, -L, -CCPA, -ESF
+- rework argument -E (call_every_dart)
+- rework argument -R (random_caller)
+- rework argument -CCP (call_current_player)
+- add argument -LPB (local_playback) => playbacks audio locally / default: yes
+- support argument -C (caller) without specification of voice-pack-version
+- add sound-file-key 'ambient_playerchange_{playername}
+- support blacklisting without specific voice-pack-version
+- rework websockets (fix browser incompatibilities and improve ios device support)
+- process token-refresh response correctly
+- rework README
+
+
+## 2.11.1
+
+- improve RTW
+- treat connection loss for kc
+- add board-functions to web-caller
+
+
 ## 2.11.0
 
 - add voice-/video-calls to match-chat

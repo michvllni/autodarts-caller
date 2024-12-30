@@ -1,12 +1,9 @@
 body{
-    /* background-image: url("/static/images/background.png"); */
     background:
-    /* top, transparent black, faked with gradient */ 
     linear-gradient(
       rgba(0, 0, 0, 0.77), 
       rgba(0, 0, 0, 0.77)
     ),
-    /* bottom, image */
     url("/static/images/background.png");
     background-repeat: no-repeat;
     background-attachment: fixed;
@@ -116,36 +113,42 @@ input[type=range]:focus::-ms-fill-upper {
 }
 button, select{
     width: auto;
+    max-width: 90%;
     opacity: 0.95;
     margin: 0 auto;
     border-radius: 10px;
     padding: 20px;
     color: white;
     height: auto;
-    background-color: royalblue;
-    font-size: 30pt;
+    background-color: rgb(30, 75, 207);
+    font-size: 26pt;
     margin-bottom: 15px;
     cursor: pointer;
     text-align: center;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-
-
-.fullscreen-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: red;
-    color: white;
-    display: flex;
-    font-size: 40pt;
-    justify-content: center;
-    align-items: center;
-    z-index: 9999;
-    font-size: 24px;
+.favorite {
+    color: #F9C917;
+    font-weight: bold;
+}
+option, option:hover {
+    background-color: rgb(30, 75, 207);
+}
+button:hover, select:hover {
+    background-color: rgb(35, 87, 245);
+}
+#button-calibrate-board, #button-reset-board{
+    background-color: darkkhaki;
+}
+#button-calibrate-board:hover, #button-reset-board:hover{
+    background-color: rgb(219, 212, 114);
+}
+#button-next{
+    background-color: rgb(13, 136, 13);
+}
+#button-next:hover{
+    background-color: rgb(19, 168, 19);
 }
 .success{
     color: greenyellow;
@@ -200,12 +203,11 @@ button, select{
     padding: 10px;
     width: 85%;
 }
-
-
 #loader{
     margin: 0 auto;
     width: 48px;
     height: 48px;
+    margin-bottom: 15px;
 }
 #app-info{
     cursor: pointer;
@@ -220,10 +222,14 @@ button, select{
     z-index: 999;
 }
 #caller-name{
+    margin: 0 auto;
     margin-top: 40px;
+    max-width: 90%;
 }
 #caller-call{
+    margin: 0 auto;
     margin-bottom: 40px;
+    max-width: 90%;
 }
 #button-start{
     margin-top: 50px;
@@ -231,8 +237,16 @@ button, select{
     font-size: 33pt;
 }
 #button-say{
+    margin-top: 15px;
     width: 48px;
     height: 48px;
+    cursor: pointer;
+}
+#button-favorite{
+    margin-bottom: 7px;
+    margin-right: 15px;
+    width: 38px;
+    height: 38px;
     cursor: pointer;
 }
 #button-container-mod-toggle{
@@ -250,7 +264,6 @@ button, select{
     border-radius: 20px;
     background-color: royalblue;;
 }
-
 
 
 /* WebRTC */
@@ -362,7 +375,7 @@ button, select{
     background-color: #EBDFCE;
     border: 3px solid black;
     height: 350px;
-    max-height: 350px; 
+    max-height: 350px;
     overflow-y: auto;
     border-radius: 15px;
     word-wrap: break-word;
@@ -379,7 +392,6 @@ button, select{
     opacity: 100%;
     background-color: #EBDFCE;
     border: 3px solid black;
-
     overflow-y: auto;
     border-radius: 15px;
 }
@@ -442,5 +454,5 @@ button, select{
 .fix-bottom{
     position: fixed;
     bottom: 0;
-    left: 2%;  
+    left: 2%; 
 }
